@@ -58,6 +58,12 @@ export default class PiPlugin extends Plugin {
       callback: () => this.withChatView((view) => view.cycleThinking()),
     });
 
+    this.addCommand({
+      id: "open-spike-view",
+      name: "Debug: open spike view",
+      callback: () => void this.activateSpikeView(),
+    });
+
     // Validation-matrix probe (Phase-0 row 11): groundwork for open-file mentions.
     this.addCommand({
       id: "debug-open-tabs",
@@ -132,6 +138,12 @@ export default class PiPlugin extends Plugin {
     const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0];
     const view = leaf?.view;
     if (view instanceof ChatView) action(view);
+  }
+
+  async activateSpikeView(): Promise<void> {
+    const leaf = this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: VIEW_TYPE_PI_SPIKE, active: true });
+    this.app.workspace.revealLeaf(leaf);
   }
 
   async loadSettings(): Promise<void> {

@@ -18,8 +18,8 @@ const THINKING_LEVELS: ThinkingLevelOption[] = [
 ];
 
 export class ChatView extends ItemView {
-  private store: AgentStore;
-  private renderer: MessageRenderer;
+  private store!: AgentStore;
+  private renderer!: MessageRenderer;
   private unsubscribe: (() => void) | null = null;
 
   private titleEl!: HTMLElement;
@@ -39,7 +39,14 @@ export class ChatView extends ItemView {
     private plugin: PiPlugin
   ) {
     super(leaf);
-    this.store = new AgentStore(plugin.client, {
+    // Construction stays trivial: anything heavier can throw, and a throw in
+    // the constructor produces a silently blank leaf (onOpen never runs, so
+    // even the error panel never paints). Heavy work happens in onOpen's
+    // try/catch instead.
+  }
+
+  private createStore(): AgentStore {
+    return new AgentStore(this.plugin.client, {
       onNotice: (message, type) =>
         new Notice(`pi: ${message}`, type === "error" ? 8000 : 5000),
       onInsertText: (text) => {
@@ -52,23 +59,12 @@ export class ChatView extends ItemView {
         void this.plugin.saveSettings();
       },
     });
-    this.renderer = new MessageRenderer(this.app, "", this);
-  }
-
-  getViewType(): string {
-    return VIEW_TYPE_PI_CHAT;
-  }
-
-  getDisplayText(): string {
-    return "pi";
-  }
-
-  getIcon(): string {
-    return "message-square";
   }
 
   async onOpen(): Promise<void> {
     try {
+      this.store = this.createStore();
+      this.renderer = new MessageRenderer(this.app, "", this);
       this.buildDom();
       this.detachKeyboard = attachKeyboardInset(this.contentEl);
       this.unsubscribe = this.store.subscribe(() => {
@@ -84,12 +80,24 @@ export class ChatView extends ItemView {
     }
   }
 
+  getViewType(): string {
+    return VIEW_TYPE_PI_CHAT;
+  }
+
+  getDisplayText(): string {
+    return "pi";
+  }
+
+  getIcon(): string {
+    return "message-square";
+  }
+
   async onClose(): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.detachKeyboard?.();
     this.detachKeyboard = null;
-    this.store.destroy();
+    this.store?.destroy();
   }
 
   // ---------- DOM ----------
@@ -147,6 +155,7 @@ export class ChatView extends ItemView {
   // ---------- composer actions ----------
 
   private async sendCurrent(): Promise<void> {
+    if (!this.store || !this.inputEl) return;
     const text = this.inputEl.value.trim();
     if (!text) return;
     const s = this.store.state;
@@ -169,6 +178,7 @@ export class ChatView extends ItemView {
   }
 
   async newSession(): Promise<void> {
+    if (!this.store) return;
     const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (cwd, msg) => {
       void this.store.startNewSession(cwd, msg);
     });
@@ -190,6 +200,7 @@ export class ChatView extends ItemView {
   }
 
   private async openModelMenu(ev: MouseEvent): Promise<void> {
+    if (!this.store) return;
     const s = this.store.state;
     const cwd = s.cwd || this.plugin.settings.lastCwd;
     try {
@@ -223,14 +234,17 @@ export class ChatView extends ItemView {
   // ---------- commands (called from the command palette / ribbon) ----------
 
   abortRun(): void {
+    if (!this.store) return;
     void this.store.abort();
   }
 
   compactNow(): void {
+    if (!this.store) return;
     void this.store.compact();
   }
 
   cycleThinking(): void {
+    if (!this.store) return;
     const cur = this.store.state.thinkingLevel;
     const next = THINKING_LEVELS[(THINKING_LEVELS.indexOf(cur) + 1) % THINKING_LEVELS.length];
     void this.store.setThinkingLevel(next);
