@@ -6,7 +6,6 @@ import { resolveNewSessionCwd as resolveCwdChain } from "./state/paths";
 import { setApiBase } from "./views/react/pi-web/api-base";
 import { ChatView, VIEW_TYPE_PI_CHAT } from "./views/ChatView";
 import { PanelView, VIEW_TYPE_PI_PANEL } from "./views/PanelView";
-import { SpikeView, VIEW_TYPE_PI_SPIKE } from "./views/SpikeView";
 
 // Injected at build time (esbuild define) — short git hash.
 declare const __BUILD_ID__: string;
@@ -31,7 +30,6 @@ export default class PiPlugin extends Plugin {
 
     this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => new ChatView(leaf, this));
     this.registerView(VIEW_TYPE_PI_PANEL, (leaf) => new PanelView(leaf, this));
-    this.registerView(VIEW_TYPE_PI_SPIKE, (leaf) => new SpikeView(leaf, this));
     this.addSettingTab(new PiSettingTab(this.app, this));
 
     // Track the most recently active chat view — the panel drives its store.
@@ -57,11 +55,6 @@ export default class PiPlugin extends Plugin {
       callback: () => void this.prepareNewSession(),
     });
     this.addCommand({
-      id: "open-pi-session-picker",
-      name: "Open session picker",
-      callback: () => void this.withChatView((view) => view.openPicker()),
-    });
-    this.addCommand({
       id: "pi-abort-run",
       name: "Abort run",
       callback: () => this.withChatView((view) => view.abortRun()),
@@ -77,11 +70,6 @@ export default class PiPlugin extends Plugin {
       callback: () => this.withChatView((view) => view.cycleThinking()),
     });
 
-    this.addCommand({
-      id: "open-spike-view",
-      name: "Debug: open spike view",
-      callback: () => void this.activateSpikeView(),
-    });
 
     // Validation-matrix probe (Phase-0 row 11): groundwork for open-file mentions.
     this.addCommand({
@@ -110,9 +98,6 @@ export default class PiPlugin extends Plugin {
       );
       menu.addItem((item) =>
         item.setTitle("New session").setIcon("plus").onClick(() => void this.prepareNewSession())
-      );
-      menu.addItem((item) =>
-        item.setTitle("Open session picker").setIcon("search").onClick(() => void this.withChatView((v) => v.openPicker()))
       );
       menu.addSeparator();
       menu.addItem((item) =>
@@ -197,11 +182,6 @@ export default class PiPlugin extends Plugin {
     if (view instanceof ChatView) action(view);
   }
 
-  async activateSpikeView(): Promise<void> {
-    const leaf = this.app.workspace.getLeaf("tab");
-    await leaf.setViewState({ type: VIEW_TYPE_PI_SPIKE, active: true });
-    this.app.workspace.revealLeaf(leaf);
-  }
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());

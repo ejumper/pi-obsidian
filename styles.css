@@ -1,123 +1,26 @@
 /* pi-obsidian styles — theme-native: use Obsidian CSS variables only, no hardcoded colors. */
 
-/* ---------- Phase 0 spike (deliberately plain) ---------- */
 
-.pi-spike {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 0;
-}
 
-.pi-spike-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  flex-shrink: 0;
-}
 
-.pi-spike-label {
-  color: var(--text-muted);
-}
 
-.pi-spike-cwd {
-  flex: 0 0 260px;
-}
 
-.pi-spike-status {
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
 
-.pi-spike-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
 
-.pi-spike-list {
-  width: 240px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  border-right: 1px solid var(--background-modifier-border);
-  padding: 4px;
-}
 
-.pi-spike-session {
-  padding: 6px 8px;
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  margin-bottom: 2px;
-}
 
-.pi-spike-session:hover {
-  background: var(--background-modifier-hover);
-}
 
-.pi-spike-session.is-running .pi-spike-session-title::after {
-  content: " ●";
-  color: var(--color-green);
-}
 
-.pi-spike-session-title {
-  font-size: var(--font-ui-small);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.pi-spike-session-meta {
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
-}
 
-.pi-spike-transcript {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
 
-.pi-spike-msg {
-  margin-bottom: 10px;
-}
 
-.pi-spike-msg-role {
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
 
-.pi-spike-msg.is-live .pi-spike-msg-text {
-  opacity: 0.8;
-}
 
-.pi-spike-msg.role-event .pi-spike-msg-text {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
 
-.pi-spike-composer {
-  flex-shrink: 0;
-  border-top: 1px solid var(--background-modifier-border);
-  padding: 8px;
-}
 
-.pi-spike-input {
-  width: 100%;
-  min-height: 60px;
-  resize: vertical;
-  margin-bottom: 6px;
-}
 
-.pi-spike-composer-row {
-  display: flex;
-  gap: 8px;
-}
+
 
 /* ---------- chat view (Phase 2: bottom composer) ---------- */
 
@@ -328,159 +231,35 @@
   font-size: var(--font-ui-smaller);
 }
 
-/* ---------- message rendering ---------- */
 
-.pi-msg .pi-msg-label {
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  margin-bottom: 2px;
-}
 
-.pi-msg .pi-msg-placeholder {
-  color: var(--text-muted);
-  font-style: italic;
-}
 
-.pi-msg .pi-msg-error {
-  color: var(--text-error);
-  font-size: var(--font-ui-smaller);
-}
+
 
 /* thinking block */
-.pi-msg .pi-msg-thinking {
-  border-left: 2px solid var(--background-modifier-border);
-  padding-left: 8px;
-  margin: 4px 0;
-}
 
-.pi-msg .pi-msg-thinking > summary {
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  user-select: none;
-}
 
-.pi-msg .pi-msg-thinking > div {
-  color: var(--text-muted);
-  font-size: var(--font-ui-small);
-}
 
 /* tool-call card */
-.pi-msg .pi-tool-card {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  margin: 6px 0;
-  overflow: hidden;
-}
 
-.pi-msg .pi-tool-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  background: var(--background-modifier-hover);
-  font-size: var(--font-ui-small);
-}
 
-.pi-msg .pi-tool-name {
-  font-family: var(--font-monospace);
-}
 
-.pi-msg .pi-tool-glyph {
-  color: var(--text-muted);
-}
 
-.pi-msg .pi-tool-body {
-  padding: 6px 8px;
-}
 
-.pi-msg pre.pi-tool-input,
-.pi-msg pre.pi-tool-text {
-  background: var(--background-secondary);
-  border-radius: var(--radius-s);
-  padding: 6px 8px;
-  margin: 4px 0;
-  overflow-x: auto;
-  font-size: var(--font-smaller);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-}
 
-.pi-msg .pi-tool-result.is-error pre.pi-tool-text {
-  border-left: 2px solid var(--color-red);
-}
 
-.pi-msg .pi-tool-more {
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  box-shadow: none;
-  cursor: pointer;
-  padding: 2px 0;
-}
 
-.pi-msg .pi-tool-more:hover {
-  color: var(--text-normal);
-}
 
 /* standalone tool result row */
-.pi-msg .pi-tool-result {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
-  margin: 4px 0;
-  font-size: var(--font-ui-small);
-}
 
-.pi-msg .pi-tool-result-body {
-  flex: 1 1 100%;
-}
 
 /* diffs */
-.pi-msg .pi-diff {
-  font-family: var(--font-monospace);
-  font-size: var(--font-smaller);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  overflow-x: auto;
-  margin: 4px 0;
-}
 
-.pi-msg .pi-diff-hunk {
-  color: var(--text-muted);
-  background: var(--background-secondary);
-  padding: 1px 8px;
-}
 
-.pi-msg .pi-diff-line {
-  display: flex;
-  white-space: pre;
-}
 
-.pi-msg .pi-diff-cell {
-  flex: 1;
-  padding: 0 8px;
-  overflow-x: hidden;
-  text-overflow: ellipsis;
-}
 
-.pi-msg .pi-diff-no {
-  display: inline-block;
-  width: 4ch;
-  color: var(--text-faint);
-  user-select: none;
-}
 
-.pi-msg .pi-diff-removed {
-  background: color-mix(in srgb, var(--color-red) 12%, transparent);
-}
 
-.pi-msg .pi-diff-added {
-  background: color-mix(in srgb, var(--color-green) 12%, transparent);
-}
 
 /* ---------- Mobile keyboard inset ----------
    Published at runtime by attachKeyboardInset (src/views/keyboard.ts) on the
@@ -986,51 +765,13 @@
   overflow-wrap: anywhere;
 }
 
-/* ---------- process group (pi-web "Process details" condense) ---------- */
 
-.pi-process-group {
-  margin-bottom: 12px;
-}
 
-.pi-process-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 2px 0;
-  border: none;
-  box-shadow: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  border-radius: var(--pill-radius);
-}
 
-.pi-process-header:hover {
-  color: var(--text-normal);
-}
 
-.pi-process-chevron {
-  flex-shrink: 0;
-  width: 12px;
-  text-align: center;
-}
 
-.pi-process-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.pi-process-body {
-  margin-top: 8px;
-  padding-left: 10px;
-  border-left: 2px solid var(--background-modifier-border);
-}
+
 
 /* ---------- attachment chips ---------- */
 

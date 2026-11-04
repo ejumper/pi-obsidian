@@ -10,8 +10,6 @@ import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
 import { attachKeyboardInset } from "./keyboard";
-import { NewSessionModal } from "./NewSessionModal";
-import { SessionPickerModal } from "./SessionPickerModal";
 import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
 
@@ -310,13 +308,7 @@ export class ChatView extends ItemView {
         });
         return;
       }
-      const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (chosenCwd, msg) => {
-        void this.store.startNewSession(chosenCwd, withFileLines(msg || text), images, {
-          model: this.plugin.settings.defaultModel ?? undefined,
-        });
-      });
-      modal.setMessage(text);
-      modal.open();
+      new Notice("pi: could not resolve a working directory for a new session");
       return;
     }
 
@@ -339,19 +331,6 @@ export class ChatView extends ItemView {
     this.inputEl.focus();
   }
 
-  async openPicker(): Promise<void> {
-    try {
-      const res = await this.plugin.client.listSessions();
-      new SessionPickerModal(
-        this.app,
-        res.sessions,
-        res.runningSessionIds,
-        (id) => void this.store.openSession(id)
-      ).open();
-    } catch (e) {
-      new Notice(`pi: ${String(e)}`);
-    }
-  }
 
   private async openModelMenu(ev: MouseEvent): Promise<void> {
     if (!this.store) return;
