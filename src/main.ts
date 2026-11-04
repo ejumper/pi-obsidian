@@ -1,7 +1,9 @@
 import { MarkdownView, Menu, Notice, Plugin } from "obsidian";
 import { PiClient } from "./api/client";
 import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
+import type { AgentStore } from "./state/agent-store";
 import { ChatView, VIEW_TYPE_PI_CHAT } from "./views/ChatView";
+import { PanelView, VIEW_TYPE_PI_PANEL } from "./views/PanelView";
 import { SpikeView, VIEW_TYPE_PI_SPIKE } from "./views/SpikeView";
 
 // Injected at build time (esbuild define) — short git hash.
@@ -17,6 +19,7 @@ export const BUILD_ID: string = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID
 export default class PiPlugin extends Plugin {
   settings: PiSettings = DEFAULT_SETTINGS;
   client: PiClient = new PiClient(DEFAULT_SETTINGS.baseUrl);
+  private lastChatView: ChatView | null = null;
 
   async onload(): Promise<void> {
     try {
@@ -24,13 +27,26 @@ export default class PiPlugin extends Plugin {
       this.client = new PiClient(this.settings.baseUrl);
 
     this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => new ChatView(leaf, this));
+    this.registerView(VIEW_TYPE_PI_PANEL, (leaf) => new PanelView(leaf, this));
     this.registerView(VIEW_TYPE_PI_SPIKE, (leaf) => new SpikeView(leaf, this));
     this.addSettingTab(new PiSettingTab(this.app, this));
+
+    // Track the most recently active chat view — the panel drives its store.
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf?.view instanceof ChatView) this.lastChatView = leaf.view;
+      })
+    );
 
     this.addCommand({
       id: "open-pi",
       name: "Open pi",
       callback: () => void this.activateChatView(),
+    });
+    this.addCommand({
+      id: "open-pi-panel",
+      name: "Open pi panel",
+      callback: () => void this.activatePanelView(),
     });
     this.addCommand({
       id: "new-pi-session",
@@ -87,6 +103,9 @@ export default class PiPlugin extends Plugin {
         item.setTitle("Open pi").setIcon("message-square").onClick(() => void this.activateChatView())
       );
       menu.addItem((item) =>
+        item.setTitle("Open pi panel").setIcon("panel-right").onClick(() => void this.activatePanelView())
+      );
+      menu.addItem((item) =>
         item.setTitle("New session").setIcon("plus").onClick(() => void this.withChatView((v) => v.newSession()))
       );
       menu.addItem((item) =>
@@ -129,8 +148,30 @@ export default class PiPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
+  /** Open the pi panel in the right sidebar. */
+  async activatePanelView(): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_PANEL)[0];
+    if (existing) {
+      this.app.workspace.revealLeaf(existing);
+      return;
+    }
+    const leaf = this.app.workspace.getRightLeaf(false)!;
+    await leaf.setViewState({ type: VIEW_TYPE_PI_PANEL, active: true });
+    this.app.workspace.revealLeaf(leaf);
+  }
+
+  /** Open a session in the chat view (panel-driven). */
+  async openSessionInChat(id: string): Promise<void> {
+    await this.withChatView((view) => view.openSessionById(id));
+  }
+
+  /** The store of the most recently active chat view, if any. */
+  getActiveStore(): AgentStore | null {
+    return this.lastChatView?.getStore() ?? null;
+  }
+
   /** Run an action against the chat view, opening it first if needed. */
-  private async withChatView(action: (view: ChatView) => void): Promise<void> {
+  async withChatView(action: (view: ChatView) => void): Promise<void> {
     await this.activateChatView();
     const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0];
     const view = leaf?.view;

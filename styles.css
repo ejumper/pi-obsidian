@@ -488,3 +488,102 @@
   font-size: var(--font-ui-smaller);
   user-select: none;
 }
+
+/* ---------- session list (sidebar panel) ----------
+   Rendered by src/views/panel/SessionList.ts. Row styles live under the
+   shared .pi-session-row scope so the sibling folders tree can reuse them. */
+
+.pi-session-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.pi-session-row {
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.pi-session-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pi-session-row:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+}
+
+.pi-session-title {
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pi-session-running {
+  color: var(--color-green);
+}
+
+.pi-session-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* empty state + skeletons aren't actionable */
+.pi-session-empty,
+.pi-session-skeleton {
+  cursor: default;
+}
+
+.pi-session-empty {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.pi-session-empty:hover,
+.pi-session-skeleton:hover {
+  background: none;
+}
+
+.pi-session-skeleton-bar {
+  height: 0.8em;
+  margin-bottom: 6px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  animation: pi-session-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.pi-session-skeleton-bar:last-child {
+  margin-bottom: 0;
+}
+
+.pi-session-skeleton-title {
+  width: 70%;
+}
+
+.pi-session-skeleton-meta {
+  width: 40%;
+  height: 0.65em;
+}
+
+@keyframes pi-session-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-session-skeleton-bar {
+    animation: none;
+  }
+}

@@ -283,6 +283,17 @@ export class ChatView extends ItemView {
 
   // ---------- commands (called from the command palette / ribbon) ----------
 
+  /** Open a session by id (panel-driven). */
+  openSessionById(id: string): void {
+    if (!this.store) return;
+    void this.store.openSession(id);
+  }
+
+  /** Store accessor for the pi panel's controls. */
+  getStore(): AgentStore | null {
+    return this.store ?? null;
+  }
+
   abortRun(): void {
     if (!this.store) return;
     void this.store.abort();
