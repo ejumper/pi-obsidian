@@ -1,0 +1,44 @@
+import esbuild from "esbuild";
+import process from "process";
+import builtins from "builtin-modules";
+import fs from "fs";
+import path from "path";
+import os from "os";
+
+// Build output goes straight into the vault's plugin folder so Hot Reload picks it up.
+const VAULT_PLUGIN_DIR = path.join(
+  os.homedir(),
+  "HalfaCloud/Jumperpedia/.obsidian/plugins/pi-obsidian"
+);
+
+const prod = process.argv[2] === "production";
+
+function copyStatic() {
+  fs.mkdirSync(VAULT_PLUGIN_DIR, { recursive: true });
+  fs.copyFileSync("manifest.json", path.join(VAULT_PLUGIN_DIR, "manifest.json"));
+  fs.copyFileSync("styles.css", path.join(VAULT_PLUGIN_DIR, "styles.css"));
+  // Marker file for pjeby's Hot Reload plugin.
+  fs.writeFileSync(path.join(VAULT_PLUGIN_DIR, ".hotreload"), "");
+}
+
+copyStatic();
+
+const context = await esbuild.context({
+  entryPoints: ["src/main.ts"],
+  bundle: true,
+  external: ["obsidian", "electron", ...builtins],
+  format: "cjs",
+  target: "es2022",
+  logLevel: "info",
+  sourcemap: prod ? false : "inline",
+  treeShaking: true,
+  outfile: path.join(VAULT_PLUGIN_DIR, "main.js"),
+});
+
+if (prod) {
+  await context.rebuild();
+  await context.dispose();
+} else {
+  await context.watch();
+  console.log(`watching → ${VAULT_PLUGIN_DIR}`);
+}

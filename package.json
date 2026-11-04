@@ -1,0 +1,19 @@
+{
+  "name": "pi-obsidian",
+  "version": "0.0.1",
+  "description": "Alternate GUI front-end for the pi agent harness, replacing the pi-web PWA.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["obsidian", "pi"],
+  "license": "MIT",
+  "devDependencies": {
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.14.0",
+    "typescript": "^5.6.0"
+  }
+}
