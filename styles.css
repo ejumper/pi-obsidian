@@ -340,3 +340,13 @@
 .pi-msg .pi-diff-added {
   background: color-mix(in srgb, var(--color-green) 12%, transparent);
 }
+
+/* ---------- Mobile keyboard inset ----------
+   Published at runtime by attachKeyboardInset (src/views/keyboard.ts) on the
+   view root: --pi-keyboard-inset (soft-keyboard height in px, 0 when closed)
+   and --pi-safe-bottom (max(env(safe-area-inset-bottom), 20px) on mobile,
+   0px on desktop). Consumption for the top-composer layout: the transcript is
+   what the keyboard covers, so it gets the scroll clearance. */
+.pi-chat-transcript {
+  padding-bottom: max(var(--pi-keyboard-inset, 0px), var(--pi-safe-bottom, 0px));
+}

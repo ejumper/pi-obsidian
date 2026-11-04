@@ -5,6 +5,7 @@ import { ItemView, Menu, Notice, WorkspaceLeaf } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage } from "../api/types";
 import { MessageRenderer } from "./render";
+import { attachKeyboardInset } from "./keyboard";
 import { NewSessionModal } from "./NewSessionModal";
 import { SessionPickerModal } from "./SessionPickerModal";
 import type PiPlugin from "../main";
@@ -30,6 +31,7 @@ export class ChatView extends ItemView {
   private messageEls: HTMLElement[] = [];
   private renderedMsgs: (AgentMessage | null)[] = [];
   private streamingEl: HTMLElement | null = null;
+  private detachKeyboard: (() => void) | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -66,6 +68,7 @@ export class ChatView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.buildDom();
+    this.detachKeyboard = attachKeyboardInset(this.contentEl);
     this.unsubscribe = this.store.subscribe(() => this.render());
     this.render();
   }
@@ -73,6 +76,8 @@ export class ChatView extends ItemView {
   async onClose(): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.detachKeyboard?.();
+    this.detachKeyboard = null;
     this.store.destroy();
   }
 
