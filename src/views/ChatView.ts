@@ -9,6 +9,7 @@ import { attachKeyboardInset } from "./keyboard";
 import { NewSessionModal } from "./NewSessionModal";
 import { SessionPickerModal } from "./SessionPickerModal";
 import type PiPlugin from "../main";
+import { BUILD_ID } from "../main";
 
 export const VIEW_TYPE_PI_CHAT = "pi-chat";
 
@@ -67,10 +68,20 @@ export class ChatView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
-    this.buildDom();
-    this.detachKeyboard = attachKeyboardInset(this.contentEl);
-    this.unsubscribe = this.store.subscribe(() => this.render());
-    this.render();
+    try {
+      this.buildDom();
+      this.detachKeyboard = attachKeyboardInset(this.contentEl);
+      this.unsubscribe = this.store.subscribe(() => {
+        try {
+          this.render();
+        } catch (e) {
+          this.showError(e);
+        }
+      });
+      this.render();
+    } catch (e) {
+      this.showError(e);
+    }
   }
 
   async onClose(): Promise<void> {
@@ -98,6 +109,10 @@ export class ChatView extends ItemView {
     const modelBtn = bar.createEl("button", { cls: "pi-chat-model", text: "model" });
     modelBtn.addEventListener("click", (ev) => void this.openModelMenu(ev));
     this.statusEl = bar.createDiv({ cls: "pi-chat-status", text: "idle" });
+    bar.createDiv({
+      cls: "pi-chat-version",
+      text: `v${this.plugin.manifest.version} (${BUILD_ID})`,
+    });
 
     // Composer block (top, under the bar).
     const composer = root.createDiv({ cls: "pi-chat-composer" });
@@ -275,6 +290,16 @@ export class ChatView extends ItemView {
   private isNearBottom(): boolean {
     const el = this.transcriptEl;
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }
+
+  /** Paint failures INTO the view — a blank pane hides the bug (iOS has no console). */
+  private showError(e: unknown): void {
+    const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
+    console.error("pi-obsidian view error:", msg);
+    this.contentEl.empty();
+    this.contentEl.createEl("pre", { cls: "pi-error-panel" }).setText(
+      `pi-obsidian failed to render (v${this.plugin.manifest.version} (${BUILD_ID})):\n\n${msg}`
+    );
   }
 
   private updateTitle(name: string | undefined): void {

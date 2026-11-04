@@ -2,7 +2,7 @@
   "id": "pi-obsidian",
   "name": "pi-obsidian",
   "version": "0.0.1",
-  "minAppVersion": "1.15.0",
+  "minAppVersion": "1.4.0",
   "description": "Alternate GUI front-end for the pi agent harness, replacing the pi-web PWA.",
   "author": "ejumper",
   "isDesktopOnly": false

@@ -350,3 +350,19 @@
 .pi-chat-transcript {
   padding-bottom: max(var(--pi-keyboard-inset, 0px), var(--pi-safe-bottom, 0px));
 }
+
+/* ---------- diagnostics ---------- */
+
+.pi-error-panel {
+  padding: 12px;
+  color: var(--text-error);
+  font-size: var(--font-ui-smaller);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.pi-chat-version {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  user-select: none;
+}

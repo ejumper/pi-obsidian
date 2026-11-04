@@ -4,6 +4,16 @@ import builtins from "builtin-modules";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { execSync } from "child_process";
+
+// Short git hash baked into the bundle so the UI can show which build is live
+// (catches stale syncs at a glance).
+let buildId = "dev";
+try {
+  buildId = execSync("git rev-parse --short HEAD", { cwd: process.cwd() }).toString().trim();
+} catch {
+  // not a git checkout — keep "dev"
+}
 
 // Build output goes straight into the vault's plugin folder so Hot Reload picks it up.
 const VAULT_PLUGIN_DIR = path.join(
@@ -32,6 +42,7 @@ const context = await esbuild.context({
   logLevel: "info",
   sourcemap: prod ? false : "inline",
   treeShaking: true,
+  define: { __BUILD_ID__: JSON.stringify(buildId) },
   outfile: path.join(VAULT_PLUGIN_DIR, "main.js"),
 });
 

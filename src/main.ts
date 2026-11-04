@@ -4,6 +4,10 @@ import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
 import { ChatView, VIEW_TYPE_PI_CHAT } from "./views/ChatView";
 import { SpikeView, VIEW_TYPE_PI_SPIKE } from "./views/SpikeView";
 
+// Injected at build time (esbuild define) — short git hash.
+declare const __BUILD_ID__: string;
+export const BUILD_ID: string = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "dev";
+
 // Convention layout (see PLAN/OVERVIEW.md):
 //   src/api/     transport (REST client, SSE reader)
 //   src/state/   protocol state store (ported useAgentSession logic)
@@ -15,8 +19,9 @@ export default class PiPlugin extends Plugin {
   client: PiClient = new PiClient(DEFAULT_SETTINGS.baseUrl);
 
   async onload(): Promise<void> {
-    await this.loadSettings();
-    this.client = new PiClient(this.settings.baseUrl);
+    try {
+      await this.loadSettings();
+      this.client = new PiClient(this.settings.baseUrl);
 
     this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => new ChatView(leaf, this));
     this.registerView(VIEW_TYPE_PI_SPIKE, (leaf) => new SpikeView(leaf, this));
@@ -94,7 +99,14 @@ export default class PiPlugin extends Plugin {
       menu.showAtMouseEvent(ev);
     });
 
-    console.log("pi-obsidian loaded", this.manifest.version);
+    console.log(`pi-obsidian loaded ${this.manifest.version} (${BUILD_ID})`);
+    } catch (e) {
+      // Never die silently: a load failure would otherwise leave restored
+      // workspace leaves blank with no explanation.
+      const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
+      console.error("pi-obsidian failed to load:", msg);
+      new Notice(`pi-obsidian failed to load: ${e instanceof Error ? e.message : String(e)}`, 10000);
+    }
   }
 
   onunload(): void {}
