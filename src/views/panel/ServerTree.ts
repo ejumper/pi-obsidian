@@ -197,12 +197,12 @@ export class ServerTree {
     const status = dirSlot.createDiv({ cls: "pi-tree-status", text: "loading…" });
     this.load(dirPath, generation).then(
       (entries) => {
-        if (!this.isLive(dirSlot, generation)) return;
+        if (!this.isLive(container, generation)) return;
         status.remove();
         this.appendDirRows(dirSlot, entries, dirPath, depth, generation);
       },
       (err: unknown) => {
-        if (!this.isLive(dirSlot, generation)) return;
+        if (!this.isLive(container, generation)) return;
         // 403 "Access denied" lands here too — show it, never throw.
         status.setText(`error: ${errorMessage(err)}`);
       }
