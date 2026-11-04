@@ -183,9 +183,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             flex: 1,
             minWidth: 0,
             background: "var(--user-bg)",
-            border: "1px solid rgba(59,130,246,0.2)",
             borderRadius: 12,
-            padding: "8px 12px",
+            padding: "6px 12px",
             fontSize: 14,
             lineHeight: 1.6,
             color: "var(--text)",
@@ -782,7 +781,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
     <div
       style={{
         border: "1px solid var(--border)",
-        borderRadius: 6,
+        borderRadius: 7,
         overflow: "hidden",
         fontSize: 13,
       }}
@@ -792,9 +791,10 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
         style={{
           display: "flex",
           alignItems: "center",
+          justifyContent: "flex-start",
           gap: 6,
           width: "100%",
-          padding: "6px 10px",
+          padding: "4px 8px",
           background: "var(--bg-panel)",
           border: "none",
           color: "var(--text-muted)",
