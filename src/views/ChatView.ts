@@ -3,9 +3,10 @@
 
 import { ItemView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
-import type { AgentMessage } from "../api/types";
+import type { AgentMessage, AttachedImageInput } from "../api/types";
 import { MessageRenderer } from "./render";
 import { computeTranscriptUnits, type TranscriptUnit } from "./message-display";
+import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
 import { attachKeyboardInset } from "./keyboard";
@@ -50,6 +51,7 @@ export class ChatView extends ItemView {
   private pendingCwd: string | null = null;
   /** Include open-file @mentions in outgoing prompts (settings-backed). */
   private includeFiles = false;
+  private attachments!: AttachmentStage;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -84,6 +86,10 @@ export class ChatView extends ItemView {
       this.store = this.createStore();
       this.msgRenderer = new MessageRenderer(this.app, "", this);
       this.includeFiles = this.plugin.settings.includeMentions;
+      this.attachments = new AttachmentStage({
+        upload: (file) => this.plugin.client.uploadAttachment(file),
+        onChange: () => this.updateComposerState(),
+      });
       this.buildDom();
       this.detachKeyboard = attachKeyboardInset(this.contentEl);
       this.unsubscribe = this.store.subscribe(() => {
@@ -147,11 +153,23 @@ export class ChatView extends ItemView {
       // one-line min-height and become the auto-grow floor
       attr: { rows: "1" },
     });
+    // Staged attachment chips, right under the editor (pi-web placement).
+    const chipHost = composer.createDiv({ cls: "pi-attach-host" });
+    this.attachments.renderChips(chipHost);
+
     this.inputEl.addEventListener("input", () => this.growEditor());
     this.inputEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && !ev.shiftKey) {
         ev.preventDefault();
         void this.sendCurrent();
+      }
+    });
+    // Paste and drop files into the composer (pi-web parity).
+    this.inputEl.addEventListener("paste", (ev) => {
+      const files = ev.clipboardData?.files;
+      if (files && files.length > 0) {
+        ev.preventDefault();
+        this.attachments.addFiles(files);
       }
     });
 
@@ -161,8 +179,8 @@ export class ChatView extends ItemView {
     this.runGroupEl = row.createDiv({ cls: "pi-chat-row-right" });
 
     // Left: attach, include/hide, model chip.
-    this.attachBtnEl = this.iconButton(left, "paperclip", "Attach files (coming in Phase 5)");
-    this.attachBtnEl.disabled = true;
+    this.attachBtnEl = this.iconButton(left, "paperclip", "Attach files");
+    this.attachBtnEl.addEventListener("click", () => this.attachments.pick());
     this.includeBtnEl = this.iconButton(left, "file", "Include open files in prompt");
     this.includeBtnEl.addEventListener("click", () => {
       this.includeFiles = !this.includeFiles;
@@ -249,6 +267,24 @@ export class ChatView extends ItemView {
     if (!text) return;
     const s = this.store.state;
 
+    // pi-web parity: never queue mid-run with staged attachments.
+    if (s.agentRunning && this.attachments.staged.length > 0) {
+      new Notice("pi: attachments can't be queued while a run is active — send or clear them first");
+      return;
+    }
+
+    // Stage everything BEFORE clearing the editor so failures keep the draft.
+    let prepared: { images: AttachedImageInput[]; prefixLines: string[] };
+    try {
+      prepared = await this.attachments.prepareSend();
+    } catch (e) {
+      new Notice(`pi: ${String(e)}`);
+      return;
+    }
+    const withFileLines = (t: string): string =>
+      prepared.prefixLines.length ? `${prepared.prefixLines.join("\n")}\n${t}` : t;
+    const images = prepared.images.length ? prepared.images : undefined;
+
     if (!s.sessionId) {
       let cwd = this.pendingCwd;
       if (!cwd) {
@@ -259,17 +295,17 @@ export class ChatView extends ItemView {
         }
       }
       if (cwd) {
+        const finalText = withFileLines(await this.prependMentions(text, cwd));
         this.pendingCwd = null;
         this.inputEl.value = "";
         this.growEditor();
-        const finalText = await this.prependMentions(text, cwd);
-        void this.store.startNewSession(cwd, finalText, undefined, {
+        void this.store.startNewSession(cwd, finalText, images, {
           model: this.plugin.settings.defaultModel ?? undefined,
         });
         return;
       }
       const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (chosenCwd, msg) => {
-        void this.store.startNewSession(chosenCwd, msg || text, undefined, {
+        void this.store.startNewSession(chosenCwd, withFileLines(msg || text), images, {
           model: this.plugin.settings.defaultModel ?? undefined,
         });
       });
@@ -278,13 +314,13 @@ export class ChatView extends ItemView {
       return;
     }
 
+    const finalText = withFileLines(await this.prependMentions(text, s.cwd));
     this.inputEl.value = "";
     this.growEditor();
-    const finalText = await this.prependMentions(text, s.cwd);
     if (s.agentRunning) {
-      void this.store.steer(finalText); // Queue button / Enter while running = steer
+      void this.store.steer(finalText, images); // Queue button / Enter while running = steer
     } else {
-      void this.store.sendPrompt(finalText);
+      void this.store.sendPrompt(finalText, images);
     }
   }
 

@@ -125,6 +125,24 @@ export class PiClient {
     return this.request(`/api/models${qs}`);
   }
 
+  /** POST /api/attachments (multipart) → server-side /tmp path for a file. */
+  async uploadAttachment(file: File): Promise<string> {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    const res = await fetch(`${this.baseUrl}/api/attachments`, { method: "POST", body: form });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      // non-JSON body
+    }
+    const obj = body as { path?: string; error?: string } | null;
+    if (!res.ok || !obj?.path) {
+      throw new PiApiError(res.status, obj?.error ?? `HTTP ${res.status}`);
+    }
+    return obj.path;
+  }
+
   /** GET /api/home — server-side home dir (for `~` expansion) + defaults. */
   getHome(): Promise<{ home: string; jumperpediaHome: string; defaultWorkspace?: string }> {
     return this.request("/api/home");

@@ -1031,3 +1031,68 @@
   padding-left: 10px;
   border-left: 2px solid var(--background-modifier-border);
 }
+
+/* ---------- attachment chips ---------- */
+
+.pi-attach-host:empty {
+  display: none;
+}
+
+.pi-attach-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+
+.pi-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding: 3px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--pill-radius);
+  background: var(--background-modifier-hover);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.pi-attach-chip-thumb {
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: var(--radius-s);
+  flex-shrink: 0;
+}
+
+.pi-attach-chip-icon {
+  width: 12px;
+  height: 14px;
+  border: 1.5px solid var(--text-faint);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.pi-attach-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pi-attach-chip-x {
+  flex-shrink: 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: var(--pill-radius);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.pi-attach-chip-x:hover {
+  color: var(--text-normal);
+}
