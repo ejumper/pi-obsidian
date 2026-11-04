@@ -6,6 +6,8 @@ import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage } from "../api/types";
 import { MessageRenderer } from "./render";
 import { computeTranscriptUnits, type TranscriptUnit } from "./message-display";
+import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
+import { resolveServerPath } from "../state/paths";
 import { attachKeyboardInset } from "./keyboard";
 import { NewSessionModal } from "./NewSessionModal";
 import { SessionPickerModal } from "./SessionPickerModal";
@@ -46,6 +48,8 @@ export class ChatView extends ItemView {
   private detachKeyboard: (() => void) | null = null;
   /** Set by the panel's [ New session ] entries; consumed by the first prompt. */
   private pendingCwd: string | null = null;
+  /** Include open-file @mentions in outgoing prompts (settings-backed). */
+  private includeFiles = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -79,6 +83,7 @@ export class ChatView extends ItemView {
     try {
       this.store = this.createStore();
       this.msgRenderer = new MessageRenderer(this.app, "", this);
+      this.includeFiles = this.plugin.settings.includeMentions;
       this.buildDom();
       this.detachKeyboard = attachKeyboardInset(this.contentEl);
       this.unsubscribe = this.store.subscribe(() => {
@@ -158,8 +163,13 @@ export class ChatView extends ItemView {
     // Left: attach, include/hide, model chip.
     this.attachBtnEl = this.iconButton(left, "paperclip", "Attach files (coming in Phase 5)");
     this.attachBtnEl.disabled = true;
-    this.includeBtnEl = this.iconButton(left, "file", "Include open files in prompt (coming in Phase 5)");
-    this.includeBtnEl.disabled = true;
+    this.includeBtnEl = this.iconButton(left, "file", "Include open files in prompt");
+    this.includeBtnEl.addEventListener("click", () => {
+      this.includeFiles = !this.includeFiles;
+      this.plugin.settings.includeMentions = this.includeFiles;
+      void this.plugin.saveSettings();
+      this.updateComposerState();
+    });
 
     this.modelChipEl = left.createEl("button", { cls: "pi-model-chip" });
     setIcon(this.modelChipEl.createSpan({ cls: "pi-model-icon" }), "cpu");
@@ -205,6 +215,31 @@ export class ChatView extends ItemView {
     this.queueBtnEl.classList.toggle("has-text", hasText);
     this.sendGroupEl.style.display = running ? "none" : "";
     this.runGroupEl.style.display = running ? "" : "none";
+
+    // Include/hide state + badge of files that would be mentioned.
+    setIcon(this.includeBtnEl, this.includeFiles ? "file" : "file-x");
+    const count = this.includeFiles ? collectOpenFiles(this.app).length : 0;
+    if (count > 0) this.includeBtnEl.setAttribute("data-badge", String(count));
+    else this.includeBtnEl.removeAttribute("data-badge");
+    this.includeBtnEl.setAttribute(
+      "title",
+      this.includeFiles ? `Include ${count} open file(s) in prompt` : "Open-file mentions excluded"
+    );
+  }
+
+  /** Prefix open-file @mentions (pi-web format) when the toggle is on. */
+  private async prependMentions(text: string, cwd: string): Promise<string> {
+    if (!this.includeFiles) return text;
+    try {
+      const prefix = await resolveServerPath(this.plugin.client, this.plugin.settings.pathPrefix);
+      const files = mapServerPaths(collectOpenFiles(this.app), prefix);
+      const lines = buildMentionPrefix(files, cwd);
+      if (lines.length === 0) return text;
+      return `${lines.join("\n")}\n${text}`;
+    } catch (e) {
+      new Notice(`pi: mentions failed — ${String(e)}`);
+      return text;
+    }
   }
 
   // ---------- composer actions ----------
@@ -227,7 +262,8 @@ export class ChatView extends ItemView {
         this.pendingCwd = null;
         this.inputEl.value = "";
         this.growEditor();
-        void this.store.startNewSession(cwd, text, undefined, {
+        const finalText = await this.prependMentions(text, cwd);
+        void this.store.startNewSession(cwd, finalText, undefined, {
           model: this.plugin.settings.defaultModel ?? undefined,
         });
         return;
@@ -244,10 +280,11 @@ export class ChatView extends ItemView {
 
     this.inputEl.value = "";
     this.growEditor();
+    const finalText = await this.prependMentions(text, s.cwd);
     if (s.agentRunning) {
-      void this.store.steer(text); // Queue button / Enter while running = steer
+      void this.store.steer(finalText); // Queue button / Enter while running = steer
     } else {
-      void this.store.sendPrompt(text);
+      void this.store.sendPrompt(finalText);
     }
   }
 

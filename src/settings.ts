@@ -12,6 +12,8 @@ export interface PiSettings {
   defaultSessionPath: string;
   /** Default model for new sessions (null = pi's own default). */
   defaultModel: { provider: string; modelId: string } | null;
+  /** Include open-file @mentions in outgoing prompts. */
+  includeMentions: boolean;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
@@ -20,6 +22,7 @@ export const DEFAULT_SETTINGS: PiSettings = {
   lastCwd: "/home/ejumps",
   defaultSessionPath: "",
   defaultModel: null,
+  includeMentions: false,
 };
 
 export class PiSettingTab extends PluginSettingTab {
