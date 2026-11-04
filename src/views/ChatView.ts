@@ -119,10 +119,9 @@ export class ChatView extends ItemView {
     root.empty();
     root.addClass("pi-chat");
 
-    // Session bar (top): title (→ picker stopgap), status, version.
+    // Session bar (top): plain title, status, version.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
-    this.sessionTitleEl = bar.createEl("button", { cls: "pi-chat-title", text: "pi" });
-    this.sessionTitleEl.addEventListener("click", () => void this.plugin.activatePanelView());
+    this.sessionTitleEl = bar.createEl("h1", { cls: "pi-chat-title", text: "pi" });
     this.barStatusEl = bar.createDiv({ cls: "pi-chat-status", text: "idle" });
     bar.createDiv({
       cls: "pi-chat-version",
