@@ -2,11 +2,17 @@
 // settings shortcuts). Per PLAN/PHASES/PHASE-3.md. Mobile and desktop layouts
 // mirror Obsidian's own sidebar conventions via CSS `order` (see styles.css).
 
-import { ItemView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
+import type { ThinkingLevelOption } from "../state/agent-store";
+import { PillSelect } from "./panel/PillSelect";
 import { SessionList } from "./panel/SessionList";
 import type PiPlugin from "../main";
 
 export const VIEW_TYPE_PI_PANEL = "pi-panel";
+
+const THINKING_LEVELS: ThinkingLevelOption[] = [
+  "auto", "off", "minimal", "low", "medium", "high", "xhigh", "max",
+];
 
 type PanelMode = "recent" | "folders";
 
@@ -14,6 +20,7 @@ export class PanelView extends ItemView {
   private list!: SessionList;
   private toggleRecentEl!: HTMLButtonElement;
   private toggleFoldersEl!: HTMLButtonElement;
+  private thinkingPill!: PillSelect<ThinkingLevelOption>;
   private foldersEl!: HTMLElement;
   private mainEl!: HTMLElement;
   private mode: PanelMode = "recent";
@@ -100,9 +107,21 @@ export class PanelView extends ItemView {
     const controls = root.createDiv({ cls: "pi-panel-controls" });
     const newBtn = this.panelButton(controls, "plus", "New session");
     newBtn.addEventListener("click", () => void this.plugin.withChatView((v) => v.newSession()));
-    // Temporary plain button — replaced by the pill-selector in T19.
-    const thinkBtn = this.panelButton(controls, "brain", "Thinking level");
-    thinkBtn.addEventListener("click", (ev) => void this.openThinkingMenu(ev));
+    this.thinkingPill = new PillSelect<ThinkingLevelOption>({
+      icon: "brain",
+      label: "auto",
+      value: "auto",
+      options: THINKING_LEVELS.map((level) => ({ value: level, label: level })),
+      onChange: (level) => {
+        const store = this.plugin.getActiveStore();
+        if (!store) {
+          new Notice("pi: open a session first");
+          return;
+        }
+        void store.setThinkingLevel(level);
+      },
+    });
+    controls.appendChild(this.thinkingPill.el);
     const compactBtn = this.panelButton(controls, "minimize-2", "Compact session");
     compactBtn.addEventListener("click", () => {
       const store = this.plugin.getActiveStore();
@@ -143,29 +162,12 @@ export class PanelView extends ItemView {
         b.modified.localeCompare(a.modified)
       );
       this.list.setSessions(sessions, res.runningSessionIds);
+      const store = this.plugin.getActiveStore();
+      if (store) this.thinkingPill.setValue(store.state.thinkingLevel);
     } catch (e) {
       this.list.setSessions([], []);
       new Notice(`pi: ${String(e)}`);
     }
-  }
-
-  private async openThinkingMenu(ev: MouseEvent): Promise<void> {
-    const store = this.plugin.getActiveStore();
-    if (!store) {
-      new Notice("pi: open a session first");
-      return;
-    }
-    const levels = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-    const menu = new Menu();
-    for (const level of levels) {
-      menu.addItem((item) =>
-        item
-          .setTitle(`thinking: ${level}`)
-          .setChecked(store.state.thinkingLevel === level)
-          .onClick(() => void store.setThinkingLevel(level))
-      );
-    }
-    menu.showAtMouseEvent(ev);
   }
 
   private openPluginSettings(): void {

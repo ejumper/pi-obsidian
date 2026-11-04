@@ -590,3 +590,261 @@
     animation: none;
   }
 }
+
+/* ---------- pill selector (src/views/panel/PillSelect.ts) ----------
+   Clones Obsidian mobile's tab-selector pill (NOTES/IMG_6276.jpg closed,
+   IMG_6277.jpg open): a wide rounded pill — icon + bold label, stacked
+   chevron right — opening a fixed overlay of option rows. The overlay reuses
+   the mobile `.menu` recipe (translucent background + border + shadow) so the
+   covered pill reads through dimmed, as in the reference. Theme variables
+   only; the few fallbacks are sizes/alpha, never colors. */
+
+.pi-pill {
+  /* icon metrics follow Obsidian's --icon-size / --icon-stroke convention */
+  --icon-size: var(--icon-m);
+  --icon-stroke: var(--icon-m-stroke-width);
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  width: 100%; /* wide pill spanning the sidebar; callers may override */
+  box-sizing: border-box;
+  padding: var(--size-4-3) var(--size-4-6);
+  border: none;
+  border-radius: var(--pill-radius, 999px); /* radius ≈ half height */
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-medium);
+  line-height: var(--line-height-tight);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  /* iOS would otherwise paint its own button chrome */
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.pi-pill:hover {
+  background: var(--background-modifier-border);
+}
+
+.pi-pill:focus-visible {
+  outline: 2px solid var(--background-modifier-border-focus);
+  outline-offset: 2px;
+}
+
+.pi-pill-left {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  flex: 1 1 auto;
+  min-width: 0; /* let the label ellipsize at narrow sidebar widths */
+}
+
+.pi-pill-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.pi-pill-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-semibold);
+}
+
+.pi-pill-chevron {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  --icon-size: var(--icon-xs);
+  --icon-stroke: var(--icon-xs-stroke-width);
+}
+
+/* Overlay — fixed to document.body, positioned by PillSelect.position(). */
+
+.pi-pill-overlay {
+  position: fixed;
+  display: none;
+  z-index: var(--layer-menu);
+  box-sizing: border-box;
+  max-height: 50dvh; /* rows scroll; never taller than half the screen */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--size-4-2);
+  /* mobile .menu recipe: translucent so the covered pill shows through */
+  background: color-mix(
+    in srgb,
+    var(--menu-background, var(--background-secondary))
+      var(--blur-opacity-m, 90%),
+    transparent
+  );
+  border: var(--border-width, 1px) solid
+    var(--menu-border-color, var(--background-modifier-border-hover));
+  border-radius: var(--radius-xl);
+  box-shadow: var(--menu-shadow, var(--shadow-s));
+  backdrop-filter: var(--menu-backdrop-filter, none);
+  -webkit-backdrop-filter: var(--menu-backdrop-filter, none);
+}
+
+.pi-pill-overlay.is-open {
+  display: block;
+}
+
+.pi-pill-option {
+  --icon-size: var(--icon-s);
+  --icon-stroke: var(--icon-s-stroke-width);
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--pill-radius, 999px);
+  color: var(--text-muted);
+  font-size: var(--font-ui-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.pi-pill-option:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* current option: slightly lighter rounded background (as in IMG_6277) */
+.pi-pill-option.is-selected {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  font-weight: var(--font-semibold);
+}
+
+.pi-pill-option-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.pi-pill-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- pi panel (right sidebar) ---------- */
+
+.pi-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px;
+  gap: 8px;
+}
+
+.pi-panel-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.pi-panel-folders {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  padding: 12px 8px;
+}
+
+.pi-panel-settings,
+.pi-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pi-panel-btn {
+  box-sizing: border-box;
+  width: var(--input-height);
+  min-width: var(--input-height);
+  height: var(--input-height);
+  min-height: var(--input-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.pi-panel-btn:hover:not(:disabled) {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.pi-panel-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pi-panel-btn svg {
+  width: var(--icon-m);
+  height: var(--icon-m);
+  pointer-events: none;
+}
+
+.pi-panel-toggle {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pi-panel-toggle-btn {
+  flex: 1;
+  height: var(--input-height);
+  min-height: var(--input-height);
+  border: none;
+  box-shadow: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.pi-panel-toggle-btn.is-active {
+  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+  color: var(--text-normal);
+}
+
+.pi-panel-controls .pi-pill {
+  flex: 1;
+  min-width: 0;
+}
+
+.pi-panel-controls .pi-panel-btn {
+  flex-shrink: 0;
+}
+
+/* Mirrored layouts (Obsidian's own sidebar convention):
+   mobile = settings pinned top, controls at the bottom above the tab bar;
+   desktop = controls top, settings pinned bottom. */
+.pi-panel--desktop .pi-panel-controls { order: 1; }
+.pi-panel--desktop .pi-panel-toggle { order: 2; }
+.pi-panel--desktop .pi-panel-main { order: 3; }
+.pi-panel--desktop .pi-panel-settings { order: 4; }
+
+.pi-panel--mobile .pi-panel-settings { order: 1; }
+.pi-panel--mobile .pi-panel-main { order: 2; }
+.pi-panel--mobile .pi-panel-toggle { order: 3; }
+.pi-panel--mobile .pi-panel-controls { order: 4; }

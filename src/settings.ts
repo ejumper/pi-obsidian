@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, type DropdownComponent } from "obsidian";
 import type PiPlugin from "./main";
 
 export interface PiSettings {
@@ -8,12 +8,15 @@ export interface PiSettings {
   pathPrefix: string;
   /** Last working directory used for new sessions. */
   lastCwd: string;
+  /** Default model for new sessions (null = pi's own default). */
+  defaultModel: { provider: string; modelId: string } | null;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
   baseUrl: "http://localhost:30141",
   pathPrefix: "~/HalfaCloud/Jumperpedia",
   lastCwd: "/home/ejumps",
+  defaultModel: null,
 };
 
 export class PiSettingTab extends PluginSettingTab {
@@ -53,5 +56,42 @@ export class PiSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    new Setting(containerEl).setName("Models").setHeading();
+
+    const modelSetting = new Setting(containerEl)
+      .setName("Default model")
+      .setDesc("Model for new sessions (pi default = the harness's own choice)");
+    let modelDropdown: DropdownComponent | null = null;
+    modelSetting.addDropdown((dropdown) => {
+      modelDropdown = dropdown;
+      dropdown.addOption("", "pi default");
+      dropdown.onChange(async (value) => {
+        if (!value) {
+          this.plugin.settings.defaultModel = null;
+        } else {
+          const [provider, modelId] = value.split("::");
+          this.plugin.settings.defaultModel = { provider, modelId };
+        }
+        await this.plugin.saveSettings();
+      });
+    });
+
+    // Populate asynchronously once the model list is known.
+    void this.plugin.client.getModels().then((models) => {
+      if (!modelDropdown) return;
+      for (const m of models.modelList ?? []) {
+        modelDropdown.addOption(`${m.provider}::${m.id}`, `${m.provider}: ${m.name}`);
+      }
+      const current = this.plugin.settings.defaultModel;
+      modelDropdown.setValue(current ? `${current.provider}::${current.modelId}` : "");
+    }).catch(() => {
+      modelDropdown?.setDisabled(true);
+      modelSetting.setDesc("Model list unavailable — is the pi-web site running?");
+    });
+
+    new Setting(containerEl)
+      .setName("Provider auth & API keys")
+      .setDesc("Managed on the pi-web site's Models panel for now (a later phase ports it here).");
   }
 }

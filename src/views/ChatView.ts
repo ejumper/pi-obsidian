@@ -122,7 +122,7 @@ export class ChatView extends ItemView {
     // Session bar (top): title (→ picker stopgap), status, version.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
     this.sessionTitleEl = bar.createEl("button", { cls: "pi-chat-title", text: "pi" });
-    this.sessionTitleEl.addEventListener("click", () => void this.openPicker());
+    this.sessionTitleEl.addEventListener("click", () => void this.plugin.activatePanelView());
     this.barStatusEl = bar.createDiv({ cls: "pi-chat-status", text: "idle" });
     bar.createDiv({
       cls: "pi-chat-version",
@@ -211,7 +211,9 @@ export class ChatView extends ItemView {
 
     if (!s.sessionId) {
       const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (cwd, msg) => {
-        void this.store.startNewSession(cwd, msg || text);
+        void this.store.startNewSession(cwd, msg || text, undefined, {
+          model: this.plugin.settings.defaultModel ?? undefined,
+        });
       });
       modal.setMessage(text);
       modal.open();
@@ -230,7 +232,9 @@ export class ChatView extends ItemView {
   async newSession(): Promise<void> {
     if (!this.store) return;
     const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (cwd, msg) => {
-      void this.store.startNewSession(cwd, msg);
+      void this.store.startNewSession(cwd, msg, undefined, {
+        model: this.plugin.settings.defaultModel ?? undefined,
+      });
     });
     modal.open();
   }
