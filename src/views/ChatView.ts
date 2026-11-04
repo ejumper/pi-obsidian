@@ -5,6 +5,7 @@ import { ItemView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage } from "../api/types";
 import { MessageRenderer } from "./render";
+import { computeTranscriptUnits, type TranscriptUnit } from "./message-display";
 import { attachKeyboardInset } from "./keyboard";
 import { NewSessionModal } from "./NewSessionModal";
 import { SessionPickerModal } from "./SessionPickerModal";
@@ -40,8 +41,7 @@ export class ChatView extends ItemView {
   private runGroupEl!: HTMLElement;
   private transcriptEl!: HTMLElement;
 
-  private messageEls: HTMLElement[] = [];
-  private renderedMsgs: (AgentMessage | null)[] = [];
+  private messageElsCache = new Map<AgentMessage, { tag: string; el: HTMLElement }>();
   private streamingEl: HTMLElement | null = null;
   private detachKeyboard: (() => void) | null = null;
   /** Set by the panel's [ New session ] entries; consumed by the first prompt. */
@@ -356,24 +356,28 @@ export class ChatView extends ItemView {
     this.updateComposerState();
 
     const stick = this.isNearBottom();
-    const msgs = s.messages;
 
-    // Reconcile per-message elements by reference (messages only change identity
-    // when appended or replaced by the optimistic-bubble dedupe).
-    while (this.messageEls.length > msgs.length) {
-      this.messageEls.pop()?.remove();
-      this.renderedMsgs.pop();
-    }
-    for (let i = 0; i < msgs.length; i++) {
-      if (this.renderedMsgs[i] === msgs[i]) continue;
-      let el = this.messageEls[i];
-      if (!el) {
-        el = this.transcriptEl.createDiv({ cls: "pi-msg" });
-        this.messageEls.push(el);
+    // Transcript units: completed turns condense into "process groups" per
+    // pi-web semantics; the live tail renders raw (message-display.ts).
+    const units = computeTranscriptUnits(s.messages, s.agentRunning);
+    const seen = new Set<AgentMessage>();
+    const orderedEls: HTMLElement[] = [];
+    for (const unit of units) {
+      seen.add(unit.key);
+      const cached = this.messageElsCache.get(unit.key);
+      if (cached && cached.tag === unit.tag) {
+        orderedEls.push(cached.el);
+        continue;
       }
-      this.msgRenderer.renderMessage(el, msgs[i]);
-      this.renderedMsgs[i] = msgs[i];
+      const el = this.buildUnitEl(unit);
+      this.messageElsCache.set(unit.key, { tag: unit.tag, el });
+      orderedEls.push(el);
     }
+    for (const [key] of this.messageElsCache) {
+      if (!seen.has(key)) this.messageElsCache.delete(key);
+    }
+    // appendChild moves existing nodes — cheap reorder, no re-render.
+    for (const el of orderedEls) this.transcriptEl.appendChild(el);
 
     // Live streaming bubble (cumulative snapshot) at the end.
     if (s.streamingMessage) {
@@ -385,6 +389,41 @@ export class ChatView extends ItemView {
     }
 
     if (stick) this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+  }
+
+  private buildUnitEl(unit: TranscriptUnit): HTMLElement {
+    if (unit.kind === "message") {
+      const el = createDiv({ cls: "pi-msg" });
+      this.msgRenderer.renderMessage(el, unit.message, { toolResults: unit.toolResults });
+      return el;
+    }
+
+    // Process group: collapsed "Process details · …" line, openable (pi-web).
+    const group = createDiv({ cls: "pi-process-group" });
+    const parts = ["Process details", `${unit.messageCount} ${unit.messageCount === 1 ? "message" : "messages"}`];
+    if (unit.toolCallCount > 0) {
+      parts.push(`${unit.toolCallCount} ${unit.toolCallCount === 1 ? "tool call" : "tool calls"}`);
+    }
+    const header = group.createEl("button", {
+      cls: "pi-process-header",
+      attr: { "aria-expanded": "false" },
+    });
+    header.createSpan({ cls: "pi-process-chevron", text: "▸" });
+    header.createSpan({ cls: "pi-process-title", text: parts.join(" · ") });
+    const body = group.createDiv({ cls: "pi-process-body" });
+    body.style.display = "none";
+    header.addEventListener("click", () => {
+      const open = body.style.display === "none";
+      body.style.display = open ? "" : "none";
+      header.setAttribute("aria-expanded", String(open));
+      const chevron = header.firstElementChild;
+      if (chevron) chevron.setText(open ? "▾" : "▸");
+    });
+    for (const member of unit.members) {
+      const el = body.createDiv({ cls: "pi-msg" });
+      this.msgRenderer.renderMessage(el, member, { toolResults: unit.toolResults });
+    }
+    return group;
   }
 
   private isNearBottom(): boolean {

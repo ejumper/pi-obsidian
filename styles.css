@@ -985,3 +985,49 @@
   cursor: default;
   overflow-wrap: anywhere;
 }
+
+/* ---------- process group (pi-web "Process details" condense) ---------- */
+
+.pi-process-group {
+  margin-bottom: 12px;
+}
+
+.pi-process-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 0;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: var(--pill-radius);
+}
+
+.pi-process-header:hover {
+  color: var(--text-normal);
+}
+
+.pi-process-chevron {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+}
+
+.pi-process-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pi-process-body {
+  margin-top: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--background-modifier-border);
+}
