@@ -4,8 +4,8 @@
 import { ItemView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage, AttachedImageInput } from "../api/types";
-import { MessageRenderer } from "./render";
-import { computeTranscriptUnits, type TranscriptUnit } from "./message-display";
+import { computeTranscriptUnits } from "./message-display";
+import { TranscriptRenderer } from "./react/Transcript";
 import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
@@ -23,7 +23,8 @@ const THINKING_LEVELS: ThinkingLevelOption[] = [
 
 export class ChatView extends ItemView {
   private store!: AgentStore;
-  private msgRenderer!: MessageRenderer;
+  private transcript!: TranscriptRenderer;
+  private modelNames: Record<string, string> = {};
   private unsubscribe: (() => void) | null = null;
 
   // NOTE: field names must not collide with base-class instance properties —
@@ -44,14 +45,11 @@ export class ChatView extends ItemView {
   private runGroupEl!: HTMLElement;
   private transcriptEl!: HTMLElement;
 
-  private messageElsCache = new Map<AgentMessage, { tag: string; el: HTMLElement }>();
-  private streamingEl: HTMLElement | null = null;
-  private detachKeyboard: (() => void) | null = null;
-  /** Set by the panel's [ New session ] entries; consumed by the first prompt. */
   private pendingCwd: string | null = null;
   /** Include open-file @mentions in outgoing prompts (settings-backed). */
   private includeFiles = false;
   private attachments!: AttachmentStage;
+  private detachKeyboard: (() => void) | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -84,13 +82,20 @@ export class ChatView extends ItemView {
   async onOpen(): Promise<void> {
     try {
       this.store = this.createStore();
-      this.msgRenderer = new MessageRenderer(this.app, "", this);
       this.includeFiles = this.plugin.settings.includeMentions;
       this.attachments = new AttachmentStage({
         upload: (file) => this.plugin.client.uploadAttachment(file),
         onChange: () => this.updateComposerState(),
       });
       this.buildDom();
+      this.transcript = new TranscriptRenderer(this.transcriptEl, {
+        app: this.app,
+        sourcePath: "",
+        component: this,
+      });
+      void this.plugin.client.getModels().then((models) => {
+        this.modelNames = models.models ?? {};
+      }).catch(() => {});
       this.detachKeyboard = attachKeyboardInset(this.contentEl);
       this.unsubscribe = this.store.subscribe(() => {
         try {
@@ -122,6 +127,7 @@ export class ChatView extends ItemView {
     this.unsubscribe = null;
     this.detachKeyboard?.();
     this.detachKeyboard = null;
+    this.transcript?.unmount();
     this.store?.destroy();
   }
 
@@ -430,73 +436,21 @@ export class ChatView extends ItemView {
 
     const stick = this.isNearBottom();
 
-    // Transcript units: completed turns condense into "process groups" per
-    // pi-web semantics; the live tail renders raw (message-display.ts).
-    const units = computeTranscriptUnits(s.messages, s.agentRunning);
-    const seen = new Set<AgentMessage>();
-    const orderedEls: HTMLElement[] = [];
-    for (const unit of units) {
-      seen.add(unit.key);
-      const cached = this.messageElsCache.get(unit.key);
-      if (cached && cached.tag === unit.tag) {
-        orderedEls.push(cached.el);
-        continue;
-      }
-      const el = this.buildUnitEl(unit);
-      this.messageElsCache.set(unit.key, { tag: unit.tag, el });
-      orderedEls.push(el);
-    }
-    for (const [key] of this.messageElsCache) {
-      if (!seen.has(key)) this.messageElsCache.delete(key);
-    }
-    // appendChild moves existing nodes — cheap reorder, no re-render.
-    for (const el of orderedEls) this.transcriptEl.appendChild(el);
-
-    // Live streaming bubble (cumulative snapshot) at the end.
-    if (s.streamingMessage) {
-      if (!this.streamingEl) this.streamingEl = this.transcriptEl.createDiv({ cls: "pi-msg is-live" });
-      this.msgRenderer.renderMessage(this.streamingEl, s.streamingMessage, { streaming: true });
-    } else if (this.streamingEl) {
-      this.streamingEl.remove();
-      this.streamingEl = null;
-    }
-
-    if (stick) this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
-  }
-
-  private buildUnitEl(unit: TranscriptUnit): HTMLElement {
-    if (unit.kind === "message") {
-      const el = createDiv({ cls: "pi-msg" });
-      this.msgRenderer.renderMessage(el, unit.message, { toolResults: unit.toolResults });
-      return el;
-    }
-
-    // Process group: collapsed "Process details · …" line, openable (pi-web).
-    const group = createDiv({ cls: "pi-process-group" });
-    const parts = ["Process details", `${unit.messageCount} ${unit.messageCount === 1 ? "message" : "messages"}`];
-    if (unit.toolCallCount > 0) {
-      parts.push(`${unit.toolCallCount} ${unit.toolCallCount === 1 ? "tool call" : "tool calls"}`);
-    }
-    const header = group.createEl("button", {
-      cls: "pi-process-header",
-      attr: { "aria-expanded": "false" },
+    // pi-web's MessageView components render the grouped units (see
+    // react/Transcript.tsx + views/message-display.ts).
+    this.transcript.update({
+      units: computeTranscriptUnits(s.messages, s.agentRunning, s.entryIds),
+      streaming: s.streamingMessage,
+      modelNames: this.modelNames,
+      cwd: s.cwd,
+      sessionId: s.sessionId ?? undefined,
     });
-    header.createSpan({ cls: "pi-process-chevron", text: "▸" });
-    header.createSpan({ cls: "pi-process-title", text: parts.join(" · ") });
-    const body = group.createDiv({ cls: "pi-process-body" });
-    body.style.display = "none";
-    header.addEventListener("click", () => {
-      const open = body.style.display === "none";
-      body.style.display = open ? "" : "none";
-      header.setAttribute("aria-expanded", String(open));
-      const chevron = header.firstElementChild;
-      if (chevron) chevron.setText(open ? "▾" : "▸");
-    });
-    for (const member of unit.members) {
-      const el = body.createDiv({ cls: "pi-msg" });
-      this.msgRenderer.renderMessage(el, member, { toolResults: unit.toolResults });
+
+    if (stick) {
+      requestAnimationFrame(() => {
+        this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+      });
     }
-    return group;
   }
 
   private isNearBottom(): boolean {

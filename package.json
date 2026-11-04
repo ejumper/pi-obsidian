@@ -8,12 +8,21 @@
     "build": "node esbuild.config.mjs production",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["obsidian", "pi"],
+  "keywords": [
+    "obsidian",
+    "pi"
+  ],
   "license": "MIT",
   "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "builtin-modules": "^4.0.0",
     "esbuild": "^0.25.0",
     "obsidian": "^1.14.0",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   }
 }

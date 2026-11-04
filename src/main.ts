@@ -3,6 +3,7 @@ import { PiClient } from "./api/client";
 import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
 import type { AgentStore } from "./state/agent-store";
 import { resolveNewSessionCwd as resolveCwdChain } from "./state/paths";
+import { setApiBase } from "./views/react/pi-web/api-base";
 import { ChatView, VIEW_TYPE_PI_CHAT } from "./views/ChatView";
 import { PanelView, VIEW_TYPE_PI_PANEL } from "./views/PanelView";
 import { SpikeView, VIEW_TYPE_PI_SPIKE } from "./views/SpikeView";
@@ -26,6 +27,7 @@ export default class PiPlugin extends Plugin {
     try {
       await this.loadSettings();
       this.client = new PiClient(this.settings.baseUrl);
+      setApiBase(this.settings.baseUrl);
 
     this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => new ChatView(leaf, this));
     this.registerView(VIEW_TYPE_PI_PANEL, (leaf) => new PanelView(leaf, this));
@@ -208,5 +210,6 @@ export default class PiPlugin extends Plugin {
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     this.client = new PiClient(this.settings.baseUrl);
+    setApiBase(this.settings.baseUrl);
   }
 }

@@ -1096,3 +1096,122 @@
 .pi-attach-chip-x:hover {
   color: var(--text-normal);
 }
+
+/* ---------- pi-web rendering compat (T27: verbatim MessageView port) ----------
+   The copied components style themselves with pi-web's CSS variables and
+   these 7 classes from pi-web's globals.css. Map the variables onto the
+   Obsidian theme so the port follows the user's theme automatically. */
+
+.pi-transcript-react {
+  --text: var(--text-normal);
+  --text-dim: var(--text-faint);
+  --border: var(--background-modifier-border);
+  --accent: var(--interactive-accent);
+  --bg: var(--background-primary);
+  --bg-panel: var(--background-secondary);
+  --bg-subtle: var(--background-modifier-hover);
+  --user-bg: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  --font-mono: var(--font-monospace);
+}
+
+.pi-transcript-react .markdown-user-message p {
+  white-space: pre-wrap;
+}
+
+.pi-transcript-react .markdown-custom-message {
+  line-height: 1.32;
+}
+
+.pi-transcript-react .markdown-custom-message p { margin: 0; }
+
+.pi-transcript-react .markdown-custom-message h1,
+.pi-transcript-react .markdown-custom-message h2,
+.pi-transcript-react .markdown-custom-message h3,
+.pi-transcript-react .markdown-custom-message h4,
+.pi-transcript-react .markdown-custom-message h5,
+.pi-transcript-react .markdown-custom-message h6 {
+  margin: 4px 0 2px;
+  line-height: 1.18;
+}
+
+.pi-transcript-react .markdown-custom-message ul,
+.pi-transcript-react .markdown-custom-message ol {
+  margin: 2px 0 3px;
+}
+
+.pi-transcript-react .markdown-custom-message li { margin: 0; }
+
+.pi-transcript-react .markdown-custom-message blockquote {
+  margin: 3px 0;
+  padding: 4px 8px;
+}
+
+.pi-transcript-react .markdown-compaction-message {
+  line-height: 1.5;
+}
+
+.pi-transcript-react .markdown-compaction-message p { margin: 0 0 7px; }
+
+.pi-transcript-react .markdown-compaction-message h1,
+.pi-transcript-react .markdown-compaction-message h2,
+.pi-transcript-react .markdown-compaction-message h3,
+.pi-transcript-react .markdown-compaction-message h4,
+.pi-transcript-react .markdown-compaction-message h5,
+.pi-transcript-react .markdown-compaction-message h6 {
+  margin: 8px 0 3px;
+  line-height: 1.25;
+}
+
+.pi-transcript-react .markdown-compaction-message ul,
+.pi-transcript-react .markdown-compaction-message ol {
+  margin: 4px 0 8px;
+}
+
+.pi-transcript-react .markdown-compaction-message li { margin: 2px 0; }
+
+.pi-transcript-react .compaction-file-details {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pi-transcript-react .compaction-file-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.pi-transcript-react .compaction-file-section {
+  margin-top: 8px;
+}
+
+.pi-transcript-react .compaction-file-title {
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.pi-transcript-react .compaction-file-list {
+  max-height: 180px;
+  margin: 0;
+  padding: 7px 8px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.pi-transcript-react .compaction-file-list li {
+  overflow-wrap: anywhere;
+}
+
+.pi-transcript-react .compaction-file-list li + li {
+  margin-top: 3px;
+}

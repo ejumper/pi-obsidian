@@ -21,7 +21,24 @@ the two parked composer buttons become real: attachments and open-file mentions.
 
 ## 1.0 Tasks
 
-### T24 — Condense semantics *(architect + executor)*
+### T27 — 1:1 MessageView port via React *(supersedes the T24 renderer approach; user decision 2026-11-04)*
+Bundle React 19 and copy pi-web's message-rendering subtree verbatim into
+`src/views/react/pi-web/`: `MessageView.tsx` + `lib/{clipboard,compaction-summary,message-display,
+patch}.ts` (import paths remapped; internal `fetch` URLs routed through an `apiUrl()` base shim —
+MessageView also carries the lazy-thinking loader and the read-aloud speak buttons).
+- `MarkdownBody` is SWAPPED (the one intentional divergence): identical props
+  (`{children, className?, isStreaming?, cwd?, onOpenFile?}`) implemented over Obsidian's
+  `MarkdownRenderer` — prose stays Obsidian-native per the user's earlier decision.
+- `ProcessDetailsGroup` copied from ChatWindow (replaces the hand-rolled group header).
+- CSS compat layer: pi-web's 10 vars (`--text/--text-dim/--border/--accent/--bg/--bg-panel/
+  --bg-subtle/--user-bg/--font-mono`) mapped onto Obsidian theme vars + the 7 pi-web class rules
+  from globals.css.
+- Glue (`src/views/react/Transcript.tsx` + mount helper): our `message-display.ts` grouping engine
+  (already a rule-for-rule port) renders units through the copied MessageView. ChatView's vanilla
+  transcript renderer is retired.
+- **Verify:** typecheck/build + A/B against pi-web on the same session.
+
+### T24 — Condense semantics *(done — grouping engine stays)*
 - Study pi-web `components/MessageView.tsx` + `components/ChatWindow.tsx` grouping logic.
 - Rework `src/views/render/`: consecutive tool-call/tool-result messages group into a collapsible
   "run" row (live-expanded while streaming the run; condenses when a prose message arrives).

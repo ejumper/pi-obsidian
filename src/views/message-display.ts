@@ -112,6 +112,7 @@ export interface MessageUnit {
   /** Cache identity: the ORIGINAL message object this unit derives from. */
   key: AgentMessage;
   message: AgentMessage;
+  entryId?: string;
   toolResults?: Map<string, ToolResultMessage>;
 }
 
@@ -121,7 +122,7 @@ export interface GroupUnit {
   /** Cache identity: the segment's user message object. */
   key: AgentMessage;
   /** Process messages, including the synthetic final-process split, in order. */
-  members: AgentMessage[];
+  members: Array<{ message: AgentMessage; entryId?: string }>;
   messageCount: number;
   toolCallCount: number;
   toolResults: Map<string, ToolResultMessage>;
@@ -129,8 +130,8 @@ export interface GroupUnit {
 
 export type TranscriptUnit = MessageUnit | GroupUnit;
 
-function plain(message: AgentMessage): MessageUnit {
-  return { kind: "message", tag: "plain", key: message, message };
+function plain(message: AgentMessage, entryId?: string): MessageUnit {
+  return { kind: "message", tag: "plain", key: message, message, entryId };
 }
 
 function withBlocks(message: AssistantMessage, content: AssistantContentBlock[]): AssistantMessage {
@@ -140,14 +141,15 @@ function withBlocks(message: AssistantMessage, content: AssistantContentBlock[])
 /** Split the message list into render units (see semantics at the top). */
 export function computeTranscriptUnits(
   messages: AgentMessage[],
-  running: boolean
+  running: boolean,
+  entryIds?: string[]
 ): TranscriptUnit[] {
   const units: TranscriptUnit[] = [];
   let idx = 0;
   while (idx < messages.length) {
     const msg = messages[idx];
     if (msg.role !== "user") {
-      units.push(plain(msg));
+      units.push(plain(msg, entryIds?.[idx]));
       idx += 1;
       continue;
     }
@@ -161,13 +163,13 @@ export function computeTranscriptUnits(
 
     if (finalIdx === -1 || isLiveTail) {
       // No answer yet, or the run is still on this segment: render raw.
-      for (let i = userIdx; i < endIdx; i++) units.push(plain(messages[i]));
+      for (let i = userIdx; i < endIdx; i++) units.push(plain(messages[i], entryIds?.[i]));
       idx = endIdx;
       continue;
     }
 
     // Completed segment: user → process group → final answer → trailing.
-    units.push(plain(messages[userIdx]));
+    units.push(plain(messages[userIdx], entryIds?.[userIdx]));
 
     const toolResults = new Map<string, ToolResultMessage>();
     for (let i = userIdx + 1; i < endIdx; i++) {
@@ -179,13 +181,16 @@ export function computeTranscriptUnits(
     for (let i = userIdx + 1; i < finalIdx; i++) processIndices.push(i);
     const visible = processIndices.filter((i) => hasDisplayableProcessMessage(messages[i]));
 
-    const members: AgentMessage[] = visible.map((i) => messages[i]);
+    const members: Array<{ message: AgentMessage; entryId?: string }> = visible.map((i) => ({
+      message: messages[i],
+      entryId: entryIds?.[i],
+    }));
     let toolCallCount = countToolCalls(messages, visible);
 
     const finalMsg = messages[finalIdx] as AssistantMessage;
     const { answerBlocks, processBlocks } = splitFinalAssistantBlocks(finalMsg);
     if (processBlocks.length > 0) {
-      members.push(withBlocks(finalMsg, processBlocks));
+      members.push({ message: withBlocks(finalMsg, processBlocks), entryId: entryIds?.[finalIdx] });
       toolCallCount += countToolCallBlocks(processBlocks);
     }
     if (members.length > 0) {
@@ -205,10 +210,11 @@ export function computeTranscriptUnits(
         tag: "answer",
         key: finalMsg,
         message: withBlocks(finalMsg, answerBlocks),
+        entryId: entryIds?.[finalIdx],
         toolResults,
       });
     }
-    for (let i = finalIdx + 1; i < endIdx; i++) units.push(plain(messages[i]));
+    for (let i = finalIdx + 1; i < endIdx; i++) units.push(plain(messages[i], entryIds?.[i]));
 
     idx = endIdx;
   }
