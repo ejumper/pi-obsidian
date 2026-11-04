@@ -171,8 +171,10 @@
 
 .pi-chat-input {
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  min-height: calc(1.6em + 12px);
+  /* exactly one line + padding + border; growEditor() takes it from there */
+  min-height: calc(1em * var(--line-height-normal) + 14px);
   max-height: min(8.6em, calc(100dvh - var(--pi-keyboard-inset, 0px) - 220px));
   resize: none;
   overflow-y: auto;
@@ -187,7 +189,7 @@
   -webkit-appearance: none;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
+  border-radius: var(--pill-radius);
   padding: 6px 10px;
 }
 
