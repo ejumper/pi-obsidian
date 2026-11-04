@@ -33,39 +33,55 @@ speaking the pi-web site's existing HTTP+SSE API over Tailscale.
 
 ## 3.0 Design Decisions
 
-- **Placement**: setting switches the view between the main area (tab) and the right sidebar.
-  Same UI code, responsive to container width.
-- **Layout**: prompt editor at TOP of the view, primary button row under it (file attacher, model
-  selector, open-file include/hide, send), transcript streaming below. Composer stays clear of the
-  iOS keyboard via Obsidian's `--keyboard-height` CSS variable.
-- **Settings tab**: models/skills/plugins/tools defaults, base URL(s), vault-root→server path
-  prefix (for mentions), instance selection.
-- **Secondary actions** (thinking level, compact, new session, session picker opener) are commands,
-  surfaced via the ribbon-menu button. Primary actions live in the composer row.
-- **Rendering**: Obsidian `MarkdownRenderer` for all prose (theme-native, wiki-links for free);
-  custom themed components only for tool-call cards, diffs, thinking toggles, extension terminal
-  frames. No Tailwind skin — Obsidian CSS variables only.
-- **Session picker**: `SuggestModal` (Obsidian's native fuzzy switcher). Session title in the view
-  header where the file name sits.
-- **Open-file mentions**: enumerate files open in workspace tabs, map vault path → server path via
-  a configurable prefix (`~/HalfaCloud/Jumperpedia`). Mention fires at prompt send.
-- **Dropped**: completion sound (pi-web invention, unwanted). Per-session tools toggle (defaults in
-  plugin settings only).
-- **Transport**: `fetch` streaming (`response.body.getReader()`) for SSE, plain `fetch`/`requestUrl`
-  for one-shots. `EventSource` rejected (no custom headers — blocks auth later).
+*(2026-11-04 revision — supersedes the Phase-1 layout/placement decisions.)*
+
+- **Layout**: session bar on top (title → opens pi panel, status, version), transcript in the
+  middle (virtualized scroll region), **prompt editor at BOTTOM** with the primary button row
+  under it. Composer floats above the iOS keyboard via Obsidian's `--keyboard-height`.
+- **Button row** (left→right): attach (paperclip), include/hide open files (file icon + count
+  badge), model chip (cpu icon + name → menu) … right side: **idle** = one circular send button
+  (arrow-up, interactive-accent, disabled when empty); **running** = Stop pill (red) + Queue
+  button (yellow when text present) which sends **steer**. Follow-up/queue-after-run UI is
+  deliberately dropped — not a pi-harness concept.
+- **Right sidebar = pi panel** (a dedicated view; the "Open pi in" setting is retired, chat is
+  main-area only): session picker (Recent | Folders), control buttons (new session, thinking
+  pill-selector, compact), settings-shortcut buttons (Models wired first; Skills/Plugins parked).
+  Layout mirrors Obsidian's sidebar conventions: mobile = settings top / list / toggle /
+  controls bottom; desktop = controls top / toggle / list / settings bottom.
+- **Session picker**: Recent = global recency. Folders = SERVER file tree (never the vault —
+  drift must not seed bogus cwds), Obsidian-explorer styling, pinned `[ New session ]` first in
+  every dir + per-dir recency below it.
+- **New-session cwd chain**: "Default Session Path" setting → current session's cwd → last
+  created session's cwd → `pathPrefix` (the vault-mapping setting, reused as configured root;
+  `~` expanded via `GET /api/home` — never send `~` to existsSync-checked endpoints).
+- **Settings tab**: base URL, path prefix, default session path; Models section (minimal port:
+  default model + model list; provider auth stays in the pi-web site for now).
+- **Open-file mentions**: ALL open file tabs, deduped, mapped vault path → server path via the
+  configurable prefix (`~/HalfaCloud/Jumperpedia`), injected at prompt send per pi-web doc 1.41.
+- **Rendering**: Obsidian `MarkdownRenderer` for prose (theme-native); custom themed components
+  for tool-call runs (live → condense per pi-web semantics), thinking toggles, diffs. Obsidian
+  CSS variables only.
+- **Secondary actions** are commands, surfaced via the ribbon-menu button.
+- **Dropped**: completion sound; per-session tools toggle; follow-up queue; sidebar placement.
+- **Transport**: `fetch` streaming (`response.body.getReader()`) for SSE, plain `fetch` for
+  one-shots. `EventSource` rejected (no custom headers — blocks auth later).
 
 ## 4.0 Phases
 
 - [x] **Phase 0 — Spike & dev loop** (`PHASES/PHASE-0.md`): scaffold, pi-web CORS change, minimal
-      live-streaming spike view; validate the whole dev loop including the phone. (Phone rows
-      6–10 deferred to Phase 1 exit by user decision.)
-- [ ] **Phase 1 — Core chat**: state store port, chat view (transcript, tool cards, thinking,
-      composer), model/thinking popover, session picker, commands + ribbon, settings tab,
-      reconnect/reconciliation, placement setting, virtualization + keyboard handling.
-- [ ] **Phase 2 — Subsystems**: open-file mentions, file attachments; optional tier: live terminal
-      view (pi-live), voice.
-- [ ] **Phase 3 — Hardening & distribution**: iOS perf pass on device, BRAT/release pipeline,
-      Guides documentation (approval required), changelog wrap-up.
+      live-streaming spike view; validate the dev loop. (Phone rows 6–10 deferred to later exit.)
+- [x] **Phase 1 — Core chat** (`PHASES/PHASE-1.md`): state store port, chat view, renderers,
+      picker/modals, commands, keyboard inset. (Virtualization deferred to phone perf pass.)
+- [ ] **Phase 2 — Layout & Composer** (`PHASES/PHASE-2.md`): bottom composer, auto-grow editor,
+      button-row states (send/stop/queue/attach/include/model), placement removal.
+- [ ] **Phase 3 — Right panel** (`PHASES/PHASE-3.md`): pi-panel view, pill-selector, Recent
+      session list, control + settings buttons, Models settings section.
+- [ ] **Phase 4 — Folders picker & session paths** (`PHASES/PHASE-4.md`): server tree, per-dir
+      new-session pins, Default Session Path + cwd fallback chain.
+- [ ] **Phase 5 — Transcript fidelity & composer features** (`PHASES/PHASE-5.md`): pi-web
+      condense semantics, attachments, open-file mentions; closes the deferred phone rows.
+- [ ] **Phase 6 — Hardening & distribution**: iOS perf pass (virtualization if measured),
+      BRAT/release pipeline, Guides documentation (approval required), changelog wrap-up.
 
 ## 5.0 Working Agreement
 
