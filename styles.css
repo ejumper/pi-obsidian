@@ -257,14 +257,25 @@
   pointer-events: none;
 }
 
+/* Send: grey with nothing to send, theme accent once there is text. */
 .pi-send-btn {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.pi-send-btn:not(:disabled) {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
 
-.pi-send-btn:hover:not(:disabled) {
+.pi-send-btn:not(:disabled):hover {
   background: var(--interactive-accent-hover, var(--interactive-accent));
   color: var(--text-on-accent);
+}
+
+.pi-send-btn:disabled {
+  opacity: 1;
+  cursor: default;
 }
 
 .pi-queue-btn.has-text {
