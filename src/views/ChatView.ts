@@ -381,6 +381,8 @@ export class ChatView extends ItemView {
   }
 
   private updateTitle(name: string | undefined): void {
-    this.sessionTitleEl.setText(name || this.store.state.sessionId?.slice(0, 8) || "new session");
+    const s = this.store.state;
+    const title = s.sessionName || s.firstMessage.slice(0, 60) || "new session";
+    this.sessionTitleEl.setText(name || title);
   }
 }

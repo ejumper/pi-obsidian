@@ -77,6 +77,8 @@ export interface StoreState {
   cwd: string;
   filePath: string;
   sessionName: string | undefined;
+  /** Display fallback when no explicit name: the session's first user message. */
+  firstMessage: string;
   messages: AgentMessage[];
   entryIds: string[];
   streamingMessage: AgentMessage | null;
@@ -218,6 +220,7 @@ export class AgentStore {
     cwd: "",
     filePath: "",
     sessionName: undefined,
+    firstMessage: "",
     messages: [],
     entryIds: [],
     streamingMessage: null,
@@ -306,6 +309,7 @@ export class AgentStore {
         cwd: d.info?.cwd ?? d.filePath,
         filePath: d.filePath,
         sessionName: d.info?.name,
+        firstMessage: d.info?.firstMessage ?? "",
       };
       if (d.context.model) patch.currentModel = d.context.model;
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -935,6 +939,7 @@ export class AgentStore {
         tree: d.tree,
         activeLeafId: d.leafId,
         sessionName: d.info?.name,
+        firstMessage: d.info?.firstMessage ?? this.state.firstMessage,
       };
       if (d.context.model) patch.currentModel = d.context.model;
       this.update(patch);
