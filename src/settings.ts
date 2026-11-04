@@ -8,6 +8,8 @@ export interface PiSettings {
   pathPrefix: string;
   /** Last working directory used for new sessions. */
   lastCwd: string;
+  /** "Default Session Path" — home-page analog for new sessions (empty = use the cwd chain). */
+  defaultSessionPath: string;
   /** Default model for new sessions (null = pi's own default). */
   defaultModel: { provider: string; modelId: string } | null;
 }
@@ -16,6 +18,7 @@ export const DEFAULT_SETTINGS: PiSettings = {
   baseUrl: "http://localhost:30141",
   pathPrefix: "~/HalfaCloud/Jumperpedia",
   lastCwd: "/home/ejumps",
+  defaultSessionPath: "",
   defaultModel: null,
 };
 
@@ -53,6 +56,19 @@ export class PiSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.pathPrefix)
           .onChange(async (value) => {
             this.plugin.settings.pathPrefix = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Default session path")
+      .setDesc("Home-page analog for new sessions. Empty = current session's cwd, then last used, then the vault path prefix")
+      .addText((text) =>
+        text
+          .setPlaceholder("(cwd chain)")
+          .setValue(this.plugin.settings.defaultSessionPath)
+          .onChange(async (value) => {
+            this.plugin.settings.defaultSessionPath = value.trim();
             await this.plugin.saveSettings();
           })
       );

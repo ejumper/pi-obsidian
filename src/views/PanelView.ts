@@ -106,7 +106,7 @@ export class PanelView extends ItemView {
     // Controls row: new session, compact, then the thinking pill.
     const controls = root.createDiv({ cls: "pi-panel-controls" });
     const newBtn = this.panelButton(controls, "plus", "New session");
-    newBtn.addEventListener("click", () => void this.plugin.withChatView((v) => v.newSession()));
+    newBtn.addEventListener("click", () => void this.plugin.prepareNewSession());
     const compactBtn = this.panelButton(controls, "minimize-2", "Compact session");
     compactBtn.addEventListener("click", () => {
       const store = this.plugin.getActiveStore();

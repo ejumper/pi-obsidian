@@ -125,6 +125,18 @@ export class PiClient {
     return this.request(`/api/models${qs}`);
   }
 
+  /** GET /api/home — server-side home dir (for `~` expansion) + defaults. */
+  getHome(): Promise<{ home: string; jumperpediaHome: string; defaultWorkspace?: string }> {
+    return this.request("/api/home");
+  }
+
+  /** GET /api/files/<path>?type=list — directory listing of the server FS. */
+  listDir(path: string): Promise<{ entries: { name: string; isDir: boolean }[]; path: string }> {
+    return this.request(
+      `/api/files/${encodeURIComponent(path)}?type=list`
+    );
+  }
+
   /** POST /api/agent/new — creates a session runtime; body carries the first
    *  command ({type:"prompt", ...}) or {type:"ensure_session"} to create only. */
   async createSession(

@@ -44,6 +44,8 @@ export class ChatView extends ItemView {
   private renderedMsgs: (AgentMessage | null)[] = [];
   private streamingEl: HTMLElement | null = null;
   private detachKeyboard: (() => void) | null = null;
+  /** Set by the panel's [ New session ] entries; consumed by the first prompt. */
+  private pendingCwd: string | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -213,8 +215,25 @@ export class ChatView extends ItemView {
     const s = this.store.state;
 
     if (!s.sessionId) {
-      const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (cwd, msg) => {
-        void this.store.startNewSession(cwd, msg || text, undefined, {
+      let cwd = this.pendingCwd;
+      if (!cwd) {
+        try {
+          cwd = await this.plugin.resolveNewSessionCwd();
+        } catch {
+          // chain resolution failed — fall back to the explicit-cwd modal
+        }
+      }
+      if (cwd) {
+        this.pendingCwd = null;
+        this.inputEl.value = "";
+        this.growEditor();
+        void this.store.startNewSession(cwd, text, undefined, {
+          model: this.plugin.settings.defaultModel ?? undefined,
+        });
+        return;
+      }
+      const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (chosenCwd, msg) => {
+        void this.store.startNewSession(chosenCwd, msg || text, undefined, {
           model: this.plugin.settings.defaultModel ?? undefined,
         });
       });
@@ -232,14 +251,13 @@ export class ChatView extends ItemView {
     }
   }
 
-  async newSession(): Promise<void> {
+  /** Prepare a new session at the given cwd (no modal); first prompt creates it. */
+  prepareNewSession(cwd: string): void {
     if (!this.store) return;
-    const modal = new NewSessionModal(this.app, this.plugin.settings.lastCwd, (cwd, msg) => {
-      void this.store.startNewSession(cwd, msg, undefined, {
-        model: this.plugin.settings.defaultModel ?? undefined,
-      });
-    });
-    modal.open();
+    this.pendingCwd = cwd;
+    this.store.reset();
+    this.updateTitle(undefined);
+    this.inputEl.focus();
   }
 
   async openPicker(): Promise<void> {
@@ -386,7 +404,10 @@ export class ChatView extends ItemView {
 
   private updateTitle(name: string | undefined): void {
     const s = this.store.state;
-    const title = s.sessionName || s.firstMessage.slice(0, 60) || "new session";
+    const title =
+      s.sessionName ||
+      s.firstMessage.slice(0, 60) ||
+      (this.pendingCwd ? `new session · ${this.pendingCwd}` : "new session");
     this.sessionTitleEl.setText(name || title);
   }
 }

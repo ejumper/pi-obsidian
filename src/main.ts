@@ -2,6 +2,7 @@ import { MarkdownView, Menu, Notice, Plugin } from "obsidian";
 import { PiClient } from "./api/client";
 import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
 import type { AgentStore } from "./state/agent-store";
+import { resolveNewSessionCwd as resolveCwdChain } from "./state/paths";
 import { ChatView, VIEW_TYPE_PI_CHAT } from "./views/ChatView";
 import { PanelView, VIEW_TYPE_PI_PANEL } from "./views/PanelView";
 import { SpikeView, VIEW_TYPE_PI_SPIKE } from "./views/SpikeView";
@@ -51,7 +52,7 @@ export default class PiPlugin extends Plugin {
     this.addCommand({
       id: "new-pi-session",
       name: "New session",
-      callback: () => void this.withChatView((view) => view.newSession()),
+      callback: () => void this.prepareNewSession(),
     });
     this.addCommand({
       id: "open-pi-session-picker",
@@ -106,7 +107,7 @@ export default class PiPlugin extends Plugin {
         item.setTitle("Open pi panel").setIcon("panel-right").onClick(() => void this.activatePanelView())
       );
       menu.addItem((item) =>
-        item.setTitle("New session").setIcon("plus").onClick(() => void this.withChatView((v) => v.newSession()))
+        item.setTitle("New session").setIcon("plus").onClick(() => void this.prepareNewSession())
       );
       menu.addItem((item) =>
         item.setTitle("Open session picker").setIcon("search").onClick(() => void this.withChatView((v) => v.openPicker()))
@@ -158,6 +159,22 @@ export default class PiPlugin extends Plugin {
     const leaf = this.app.workspace.getRightLeaf(false)!;
     await leaf.setViewState({ type: VIEW_TYPE_PI_PANEL, active: true });
     this.app.workspace.revealLeaf(leaf);
+  }
+
+  /** Resolve the cwd for a new session via the settings chain (Phase 4). */
+  async resolveNewSessionCwd(): Promise<string> {
+    return resolveCwdChain(this.client, {
+      defaultPath: this.settings.defaultSessionPath,
+      currentCwd: this.getActiveStore()?.state.cwd || null,
+      lastCwd: this.settings.lastCwd,
+      fallbackRoot: this.settings.pathPrefix,
+    });
+  }
+
+  /** New-session flow: cwd from the chain, first prompt creates the session. */
+  async prepareNewSession(): Promise<void> {
+    const cwd = await this.resolveNewSessionCwd();
+    await this.withChatView((view) => view.prepareNewSession(cwd));
   }
 
   /** Open a session in the chat view (panel-driven). */

@@ -343,6 +343,43 @@ export class AgentStore {
     }
   }
 
+  /** Reset to the empty "no session" state (pending-new-session flow). */
+  reset(): void {
+    this.closeStream();
+    this.runId++;
+    this.optimisticUserMessageKey = null;
+    this.update({
+      sessionId: null,
+      loading: false,
+      error: null,
+      live: false,
+      cwd: "",
+      filePath: "",
+      sessionName: undefined,
+      firstMessage: "",
+      messages: [],
+      entryIds: [],
+      streamingMessage: null,
+      agentRunning: false,
+      agentPhase: null,
+      queuedMessages: { steering: [], followUp: [] },
+      isCompacting: false,
+      compactResult: null,
+      compactError: null,
+      retryInfo: null,
+      thinkingLevel: "auto",
+      contextUsage: null,
+      currentModel: null,
+      tree: [],
+      activeLeafId: null,
+      extensionDialog: null,
+      extensionCustomUi: null,
+      extensionStatuses: [],
+      extensionWidgets: [],
+      externalQueued: false,
+    });
+  }
+
   /** Start a brand-new session and send the first prompt (lazy create flow). */
   async startNewSession(
     cwd: string,
