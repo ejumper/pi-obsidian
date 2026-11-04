@@ -170,7 +170,7 @@
 /* Composer pinned to the bottom; floats above the soft keyboard. */
 .pi-chat-composer {
   flex-shrink: 0;
-  padding: 8px 10px calc(8px + var(--pi-safe-bottom, 0px));
+  padding: 10px;
   margin-bottom: var(--pi-keyboard-inset, 0px);
   border-top: 1px solid var(--background-modifier-border);
 }
@@ -183,6 +183,18 @@
   resize: none;
   overflow-y: auto;
   margin-bottom: 6px;
+  /* match the file editor's type */
+  font-family: var(--font-text);
+  font-size: var(--font-text-size);
+  line-height: var(--line-height-normal);
+  color: var(--text-normal);
+  /* explicit look — iOS UA textarea styling otherwise leaks in */
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 6px 10px;
 }
 
 .pi-chat-row {
@@ -209,7 +221,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   width: 32px;
+  min-width: 32px;
   height: 32px;
   padding: 0;
   border: none;
@@ -218,6 +232,9 @@
   background: var(--background-modifier-hover);
   color: var(--text-muted);
   cursor: pointer;
+  /* iOS UA button styling would otherwise stretch/repaint these */
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .pi-icon-btn:hover:not(:disabled) {
@@ -233,6 +250,8 @@
 .pi-icon-btn svg {
   width: 17px;
   height: 17px;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
 .pi-send-btn {
@@ -261,6 +280,8 @@
   font-size: var(--font-ui-small);
   font-weight: var(--font-semibold);
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .pi-model-chip {
@@ -276,6 +297,8 @@
   background: var(--background-modifier-hover);
   color: var(--text-muted);
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .pi-model-chip:hover {
