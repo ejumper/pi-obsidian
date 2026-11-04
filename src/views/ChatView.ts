@@ -19,11 +19,15 @@ const THINKING_LEVELS: ThinkingLevelOption[] = [
 
 export class ChatView extends ItemView {
   private store!: AgentStore;
-  private renderer!: MessageRenderer;
+  private msgRenderer!: MessageRenderer;
   private unsubscribe: (() => void) | null = null;
 
-  private titleEl!: HTMLElement;
-  private statusEl!: HTMLElement;
+  // NOTE: field names must not collide with base-class instance properties —
+  // ES2022 class fields are DEFINEd after super() and would clobber values the
+  // Obsidian View constructor set (titleEl was exactly this bug: View.load()
+  // calls titleEl.setText(getDisplayText()) before onOpen ever runs).
+  private sessionTitleEl!: HTMLElement;
+  private barStatusEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private sendBtnEl!: HTMLButtonElement;
   private abortBtnEl!: HTMLButtonElement;
@@ -64,7 +68,7 @@ export class ChatView extends ItemView {
   async onOpen(): Promise<void> {
     try {
       this.store = this.createStore();
-      this.renderer = new MessageRenderer(this.app, "", this);
+      this.msgRenderer = new MessageRenderer(this.app, "", this);
       this.buildDom();
       this.detachKeyboard = attachKeyboardInset(this.contentEl);
       this.unsubscribe = this.store.subscribe(() => {
@@ -109,14 +113,14 @@ export class ChatView extends ItemView {
 
     // Session bar (top): title → picker, new session, model/thinking, status.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
-    this.titleEl = bar.createEl("button", { cls: "pi-chat-title", text: "pi" });
-    this.titleEl.addEventListener("click", () => void this.openPicker());
+    this.sessionTitleEl = bar.createEl("button", { cls: "pi-chat-title", text: "pi" });
+    this.sessionTitleEl.addEventListener("click", () => void this.openPicker());
     bar.createEl("button", { cls: "pi-chat-new", text: "+" }).addEventListener("click", () =>
       void this.newSession()
     );
     const modelBtn = bar.createEl("button", { cls: "pi-chat-model", text: "model" });
     modelBtn.addEventListener("click", (ev) => void this.openModelMenu(ev));
-    this.statusEl = bar.createDiv({ cls: "pi-chat-status", text: "idle" });
+    this.barStatusEl = bar.createDiv({ cls: "pi-chat-status", text: "idle" });
     bar.createDiv({
       cls: "pi-chat-version",
       text: `v${this.plugin.manifest.version} (${BUILD_ID})`,
@@ -258,7 +262,7 @@ export class ChatView extends ItemView {
 
     this.updateTitle(s.sessionName);
     const tools = s.agentPhase?.kind === "running_tools" ? ` · ${s.agentPhase.tools.map((t) => t.name).join(", ")}` : "";
-    this.statusEl.setText(
+    this.barStatusEl.setText(
       s.loading ? "loading…" :
       s.error ? `error: ${s.error}` :
       s.live ? "live (read-only)" :
@@ -285,14 +289,14 @@ export class ChatView extends ItemView {
         el = this.transcriptEl.createDiv({ cls: "pi-msg" });
         this.messageEls.push(el);
       }
-      this.renderer.renderMessage(el, msgs[i]);
+      this.msgRenderer.renderMessage(el, msgs[i]);
       this.renderedMsgs[i] = msgs[i];
     }
 
     // Live streaming bubble (cumulative snapshot) at the end.
     if (s.streamingMessage) {
       if (!this.streamingEl) this.streamingEl = this.transcriptEl.createDiv({ cls: "pi-msg is-live" });
-      this.renderer.renderMessage(this.streamingEl, s.streamingMessage, { streaming: true });
+      this.msgRenderer.renderMessage(this.streamingEl, s.streamingMessage, { streaming: true });
     } else if (this.streamingEl) {
       this.streamingEl.remove();
       this.streamingEl = null;
@@ -317,6 +321,6 @@ export class ChatView extends ItemView {
   }
 
   private updateTitle(name: string | undefined): void {
-    this.titleEl.setText(name || this.store.state.sessionId?.slice(0, 8) || "new session");
+    this.sessionTitleEl.setText(name || this.store.state.sessionId?.slice(0, 8) || "new session");
   }
 }
