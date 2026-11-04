@@ -136,6 +136,9 @@ export class ChatView extends ItemView {
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-chat-input",
       placeholder: "Prompt… (Enter sends, Shift+Enter newline)",
+      // textareas default to rows=2 — that intrinsic height would defeat the
+      // one-line min-height and become the auto-grow floor
+      attr: { rows: "1" },
     });
     this.inputEl.addEventListener("input", () => this.growEditor());
     this.inputEl.addEventListener("keydown", (ev) => {

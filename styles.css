@@ -189,8 +189,13 @@
   -webkit-appearance: none;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--pill-radius);
+  border-radius: var(--radius-m);
   padding: 6px 10px;
+}
+
+/* no hover background — keep only the focus border change */
+.pi-chat-input:hover {
+  background: var(--background-primary);
 }
 
 .pi-chat-row {
