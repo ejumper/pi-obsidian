@@ -263,7 +263,10 @@ export class SpikeView extends ItemView {
         const cwd = this.cwdInputEl.value.trim() || "/home/ejumps";
         this.messages.push({ role: "user", text, done: true });
         this.render();
-        const { sessionId } = await this.plugin.client.createSession(cwd, text);
+        const { sessionId } = await this.plugin.client.createSession(cwd, {
+          type: "prompt",
+          message: text,
+        });
         await this.openSession(sessionId);
       } else {
         await this.plugin.client.sendCommand(this.currentSessionId, {

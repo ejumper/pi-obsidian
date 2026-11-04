@@ -213,13 +213,91 @@ export interface SessionTreeNode {
 
 // ---------- agent commands (POST /api/agent/:id) ----------
 
-/** Extensible union — more members land in Phase 1 (model/thinking/fork/...). */
+/** Inline image payload accepted on prompt/steer/follow_up commands. */
+export interface AttachedImageInput {
+  type: "image";
+  data: string;
+  mimeType: string;
+}
+
+/** Extensible union — mirrors the `send()` switch in pi-web's rpc-manager. */
 export type AgentCommand =
-  | { type: "prompt"; message: string; streamingBehavior?: "steer" | "followUp" }
-  | { type: "steer"; message: string }
-  | { type: "follow_up"; message: string }
+  | { type: "prompt"; message: string; images?: AttachedImageInput[]; streamingBehavior?: "steer" | "followUp" }
+  | { type: "steer"; message: string; images?: AttachedImageInput[] }
+  | { type: "follow_up"; message: string; images?: AttachedImageInput[] }
   | { type: "abort" }
-  | { type: "get_state" };
+  | { type: "get_state" }
+  | { type: "set_model"; provider: string; modelId: string }
+  | { type: "set_thinking_level"; level: string }
+  | { type: "set_tools"; toolNames: string[] }
+  | { type: "set_auto_compaction"; enabled: boolean }
+  | { type: "set_auto_retry"; enabled: boolean }
+  | { type: "compact"; customInstructions?: string }
+  | { type: "abort_compaction" }
+  | { type: "fork"; entryId: string }
+  | { type: "navigate_tree"; targetId: string }
+  | { type: "set_session_name"; name: string }
+  | { type: "get_session_stats" }
+  | { type: "get_last_assistant_text" }
+  | { type: "get_tools" }
+  | { type: "get_commands" }
+  | { type: "clear_queue" }
+  | { type: "reload" }
+  | { type: "extension_ui_response"; id: string; value?: string; confirmed?: boolean; cancelled?: boolean }
+  | { type: "extension_ui_input"; id: string; data: string }
+  | { type: "extension_ui_focus"; id: string; focused?: boolean; hidden?: boolean }
+  | { type: "extension_ui_resize"; id: string; cols: number };
+
+// ---------- extension UI requests ----------
+
+export type ExtensionUiRequest =
+  | { type: "extension_ui_request"; id: string; method: "select"; title: string; options: string[]; timeout?: number; expiresAt?: number }
+  | { type: "extension_ui_request"; id: string; method: "confirm"; title: string; message: string; timeout?: number; expiresAt?: number }
+  | { type: "extension_ui_request"; id: string; method: "input"; title: string; placeholder?: string; timeout?: number; expiresAt?: number }
+  | { type: "extension_ui_request"; id: string; method: "editor"; title: string; prefill?: string; timeout?: number; expiresAt?: number }
+  | { type: "extension_ui_request"; id: string; method: "notify"; message: string; notifyType?: "info" | "warning" | "error" }
+  | { type: "extension_ui_request"; id: string; method: "setStatus"; statusKey: string; statusText?: string }
+  | { type: "extension_ui_request"; id: string; method: "setWidget"; widgetKey: string; widgetLines?: string[]; widgetPlacement?: "aboveEditor" | "belowEditor" }
+  | { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
+  | { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string }
+  | {
+      type: "extension_ui_request";
+      id: string;
+      method: "custom";
+      lines: string[];
+      closed?: boolean;
+      nonCapturing?: boolean;
+      hidden?: boolean;
+      focused?: boolean;
+    };
+
+export type ExtensionUiDialogRequest = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>;
+export type ExtensionUiCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
+
+export interface ExtensionStatusItem {
+  key: string;
+  text: string;
+}
+
+export interface ExtensionWidgetItem {
+  key: string;
+  lines: string[];
+  placement: "aboveEditor" | "belowEditor";
+}
+
+// ---------- agent runtime state (GET /api/agent/:id → state) ----------
+
+export interface AgentRuntimeState {
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+  systemPrompt?: string;
+  thinkingLevel?: string;
+  isStreaming?: boolean;
+  isPromptRunning?: boolean;
+  isCompacting?: boolean;
+  extensionStatuses?: ExtensionStatusItem[];
+  extensionWidgets?: ExtensionWidgetItem[];
+  queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
+}
 
 // ---------- SSE frames (GET /api/agent/:id/events) ----------
 
@@ -228,19 +306,24 @@ export type AgentEvent =
   | { type: "prompt_done" }
   | { type: "prompt_error"; errorMessage: string }
   | { type: "extension_error"; extensionPath?: string; event?: string; error?: string }
+  | ExtensionUiRequest
   | { type: "agent_start" }
   | { type: "agent_end" }
-  | { type: "message_start" }
+  | { type: "message_start"; message?: AgentMessage }
   | { type: "message_update"; message: AgentMessage; usage?: unknown }
-  | { type: "message_end"; message: AgentMessage }
+  | { type: "message_end"; message: AgentMessage; entryId?: string }
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args?: unknown }
   | { type: "tool_execution_update"; toolCallId?: string; [key: string]: unknown }
   | { type: "tool_execution_end"; toolCallId?: string; result?: unknown; isError?: boolean }
   | { type: "turn_end" }
-  | { type: "queue_update"; steering?: unknown[]; followUp?: unknown[] }
+  | { type: "queue_update"; steering?: string[]; followUp?: string[] }
+  | { type: "queue_pending"; pending?: boolean }
+  | { type: "external_state"; name?: string; guardEnabled?: boolean; readMode?: "read" | "work"; thinkingLevel?: string; live?: boolean; bridgeLost?: boolean }
   | { type: "compaction_start" }
-  | { type: "compaction_end"; result?: unknown; aborted?: boolean; errorMessage?: string }
-  | { type: "auto_retry_start"; attempt?: number; maxAttempts?: number }
+  | { type: "compaction_end"; result?: unknown; aborted?: boolean; errorMessage?: string; reason?: string }
+  | { type: "auto_compaction_start" }
+  | { type: "auto_compaction_end"; result?: unknown; aborted?: boolean; errorMessage?: string; reason?: string }
+  | { type: "auto_retry_start"; attempt?: number; maxAttempts?: number; errorMessage?: string }
   | { type: "auto_retry_end" }
   | { type: "session_info_changed"; name?: string };
 

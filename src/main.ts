@@ -1,11 +1,12 @@
-import { MarkdownView, Notice, Plugin } from "obsidian";
+import { MarkdownView, Menu, Notice, Plugin, WorkspaceLeaf } from "obsidian";
 import { PiClient } from "./api/client";
 import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
+import { ChatView, VIEW_TYPE_PI_CHAT } from "./views/ChatView";
 import { SpikeView, VIEW_TYPE_PI_SPIKE } from "./views/SpikeView";
 
 // Convention layout (see PLAN/OVERVIEW.md):
 //   src/api/     transport (REST client, SSE reader)
-//   src/state/   protocol state store (ported useAgentSession logic) — Phase 1
+//   src/state/   protocol state store (ported useAgentSession logic)
 //   src/views/   Obsidian views
 //   src/settings.ts  plugin settings tab
 
@@ -17,16 +18,42 @@ export default class PiPlugin extends Plugin {
     await this.loadSettings();
     this.client = new PiClient(this.settings.baseUrl);
 
+    this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => new ChatView(leaf, this));
     this.registerView(VIEW_TYPE_PI_SPIKE, (leaf) => new SpikeView(leaf, this));
     this.addSettingTab(new PiSettingTab(this.app, this));
 
     this.addCommand({
-      id: "open-spike",
-      name: "Open spike view",
-      callback: () => void this.activateSpikeView(),
+      id: "open-pi",
+      name: "Open pi",
+      callback: () => void this.activateChatView(),
+    });
+    this.addCommand({
+      id: "new-pi-session",
+      name: "New session",
+      callback: () => void this.withChatView((view) => view.newSession()),
+    });
+    this.addCommand({
+      id: "open-pi-session-picker",
+      name: "Open session picker",
+      callback: () => void this.withChatView((view) => view.openPicker()),
+    });
+    this.addCommand({
+      id: "pi-abort-run",
+      name: "Abort run",
+      callback: () => this.withChatView((view) => view.abortRun()),
+    });
+    this.addCommand({
+      id: "pi-compact",
+      name: "Compact session",
+      callback: () => this.withChatView((view) => view.compactNow()),
+    });
+    this.addCommand({
+      id: "pi-cycle-thinking",
+      name: "Cycle thinking level",
+      callback: () => this.withChatView((view) => view.cycleThinking()),
     });
 
-    // Validation-matrix probe (row 11): groundwork for open-file mentions.
+    // Validation-matrix probe (Phase-0 row 11): groundwork for open-file mentions.
     this.addCommand({
       id: "debug-open-tabs",
       name: "Debug: log open tabs",
@@ -42,17 +69,57 @@ export default class PiPlugin extends Plugin {
       },
     });
 
-    this.addRibbonIcon("message-square", "Open pi spike view", () => void this.activateSpikeView());
+    // Ribbon button opens the secondary-actions menu (PLAN/OVERVIEW §3).
+    this.addRibbonIcon("message-square", "pi", (ev) => {
+      const menu = new Menu();
+      menu.addItem((item) =>
+        item.setTitle("Open pi").setIcon("message-square").onClick(() => void this.activateChatView())
+      );
+      menu.addItem((item) =>
+        item.setTitle("New session").setIcon("plus").onClick(() => void this.withChatView((v) => v.newSession()))
+      );
+      menu.addItem((item) =>
+        item.setTitle("Open session picker").setIcon("search").onClick(() => void this.withChatView((v) => v.openPicker()))
+      );
+      menu.addSeparator();
+      menu.addItem((item) =>
+        item.setTitle("Cycle thinking level").setIcon("brain").onClick(() => this.withChatView((v) => v.cycleThinking()))
+      );
+      menu.addItem((item) =>
+        item.setTitle("Compact session").setIcon("minimize-2").onClick(() => this.withChatView((v) => v.compactNow()))
+      );
+      menu.addItem((item) =>
+        item.setTitle("Abort run").setIcon("square").onClick(() => this.withChatView((v) => v.abortRun()))
+      );
+      menu.showAtMouseEvent(ev);
+    });
 
     console.log("pi-obsidian loaded", this.manifest.version);
   }
 
   onunload(): void {}
 
-  async activateSpikeView(): Promise<void> {
-    const leaf = this.app.workspace.getLeaf("tab");
-    await leaf.setViewState({ type: VIEW_TYPE_PI_SPIKE, active: true });
+  /** Open the chat view in the configured placement (main area or sidebar). */
+  async activateChatView(): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0];
+    if (existing) {
+      this.app.workspace.revealLeaf(existing);
+      return;
+    }
+    const leaf: WorkspaceLeaf =
+      this.settings.placement === "sidebar"
+        ? this.app.workspace.getRightLeaf(false)!
+        : this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: VIEW_TYPE_PI_CHAT, active: true });
     this.app.workspace.revealLeaf(leaf);
+  }
+
+  /** Run an action against the chat view, opening it first if needed. */
+  private async withChatView(action: (view: ChatView) => void): Promise<void> {
+    await this.activateChatView();
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0];
+    const view = leaf?.view;
+    if (view instanceof ChatView) action(view);
   }
 
   async loadSettings(): Promise<void> {

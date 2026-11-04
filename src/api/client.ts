@@ -4,6 +4,8 @@
 
 import type {
   AgentCommand,
+  AgentMessage,
+  AgentRuntimeState,
   SessionContext,
   SessionInfo,
   SessionTreeNode,
@@ -37,7 +39,21 @@ export interface SessionDetailResponse {
 
 export interface AgentStateResponse {
   running: boolean;
-  state?: unknown;
+  state?: AgentRuntimeState;
+}
+
+export interface ModelsResponse {
+  models: Record<string, string>;
+  modelList?: ModelEntry[];
+  defaultModel?: { provider: string; modelId: string } | null;
+  thinkingLevels?: Record<string, string[]>;
+  thinkingLevelMaps?: Record<string, Record<string, string | null>>;
+}
+
+export interface ModelEntry {
+  id: string;
+  name: string;
+  provider: string;
 }
 
 export interface NewSessionResponse {
@@ -88,16 +104,34 @@ export class PiClient {
 
   /** GET /api/sessions/:id */
   getSession(id: string): Promise<SessionDetailResponse> {
-    return this.request(`/api/sessions/${encodeURIComponent(id)}`);
+    return this.request(
+      `/api/sessions/${encodeURIComponent(id)}?deferThinking=1&deferMedia=1`
+    );
   }
 
-  /** POST /api/agent/new — creates a session and sends the first prompt. */
-  async createSession(cwd: string, message: string): Promise<NewSessionResponse> {
-    const res = await this.post<NewSessionResponse>("/api/agent/new", {
-      cwd,
-      type: "prompt",
-      message,
-    });
+  /** GET /api/sessions/:id/context?leafId= — messages for one tree leaf. */
+  getSessionContext(
+    id: string,
+    leafId?: string
+  ): Promise<{ context: { messages: AgentMessage[]; entryIds: string[] } }> {
+    const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
+    if (leafId) params.set("leafId", leafId);
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/context?${params}`);
+  }
+
+  /** GET /api/models?cwd= */
+  getModels(cwd?: string): Promise<ModelsResponse> {
+    const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+    return this.request(`/api/models${qs}`);
+  }
+
+  /** POST /api/agent/new — creates a session runtime; body carries the first
+   *  command ({type:"prompt", ...}) or {type:"ensure_session"} to create only. */
+  async createSession(
+    cwd: string,
+    body: { type: string } & Record<string, unknown>
+  ): Promise<NewSessionResponse> {
+    const res = await this.post<NewSessionResponse>("/api/agent/new", { cwd, ...body });
     return { sessionId: res.sessionId, data: res.data };
   }
 
