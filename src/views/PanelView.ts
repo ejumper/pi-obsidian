@@ -156,7 +156,8 @@ export class PanelView extends ItemView {
     }
   }
 
-  /** Lazily build the folders tree (root = Default Session Path, else the vault prefix). */
+  /** Lazily build the folders tree — always rooted at the vault path prefix
+   *  (confined to it: no navigation above it, per design). */
   private async ensureTree(): Promise<void> {
     if (this.tree) {
       this.tree.el.style.display = "";
@@ -166,7 +167,7 @@ export class PanelView extends ItemView {
     try {
       const root = await resolveServerPath(
         this.plugin.client,
-        this.plugin.settings.defaultSessionPath || this.plugin.settings.pathPrefix
+        this.plugin.settings.pathPrefix
       );
       this.tree = new ServerTree({
         rootPath: root,

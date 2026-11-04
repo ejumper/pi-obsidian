@@ -71,14 +71,6 @@ function normalizeRoot(path: string): string {
   return trimmed === "" ? "/" : trimmed;
 }
 
-/** Parent directory, "/" as the floor; null at "/" and for relative paths. */
-function parentOf(path: string): string | null {
-  const i = path.lastIndexOf("/");
-  if (i < 0) return null;
-  if (i === 0) return path === "/" ? null : "/";
-  return path.slice(0, i);
-}
-
 function joinPath(dir: string, name: string): string {
   return dir === "/" ? `/${name}` : `${dir}/${name}`;
 }
@@ -168,36 +160,19 @@ export class ServerTree {
     this.liveContainers.clear();
     this.el.empty();
 
-    // ".." row above the root when the root has a parent ("/" is the floor).
-    const parent = parentOf(this.rootPath);
-    if (parent !== null) {
-      const up = this.el.createDiv({
-        cls: "pi-tree-row pi-tree-parent-row",
-        attr: { tabindex: "0", role: "button", title: parent },
-      });
-      up.createSpan({ cls: "pi-tree-name", text: ".." });
-      activateOn(up, () => this.setRoot(parent));
-    }
-
-    // Root path line — a heading, not a toggle (its children always show).
-    const rootRow = this.el.createDiv({ cls: "pi-tree-row pi-tree-root-row" });
-    rootRow.createSpan({
-      cls: "pi-tree-name",
-      text: this.rootPath,
-      attr: { title: this.rootPath },
-    });
-
-    const rootChildren = this.el.createDiv({
-      cls: "pi-tree-children pi-tree-children--root",
-    });
-    this.fillChildren(rootChildren, this.rootPath, 0, this.generation);
+    // Obsidian-explorer style: the root's contents ARE the top level — no
+    // root path line, no ".." row. The tree is confined to rootPath.
+    this.fillChildren(this.el, this.rootPath, 0, this.generation);
   }
 
-  /** Builds one directory's children: pinned New session row first, then its
-   *  sessions sorted by modified DESC, then the (lazy) directory entries. */
+  /** Builds one directory's children in explorer order: sub-folders first,
+   *  then the pinned [ New session ] row, then sessions (modified DESC). */
   private fillChildren(container: HTMLElement, dirPath: string, depth: number, generation: number): void {
     container.empty();
     this.liveContainers.add(container);
+
+    // Dir rows land here (lazily) — kept first in DOM order via this slot.
+    const dirSlot = container.createDiv({ cls: "pi-tree-dirs" });
 
     const newSession = container.createDiv({
       cls: "pi-tree-new-session",
@@ -214,20 +189,20 @@ export class ServerTree {
 
     const cached = this.cache.get(dirPath);
     if (cached) {
-      this.appendDirRows(container, cached, dirPath, depth, generation);
+      this.appendDirRows(dirSlot, cached, dirPath, depth, generation);
       return;
     }
 
     // Dir entries still loading: muted status row, replaced in place below.
-    const status = container.createDiv({ cls: "pi-tree-status", text: "loading…" });
+    const status = dirSlot.createDiv({ cls: "pi-tree-status", text: "loading…" });
     this.load(dirPath, generation).then(
       (entries) => {
-        if (!this.isLive(container, generation)) return;
+        if (!this.isLive(dirSlot, generation)) return;
         status.remove();
-        this.appendDirRows(container, entries, dirPath, depth, generation);
+        this.appendDirRows(dirSlot, entries, dirPath, depth, generation);
       },
       (err: unknown) => {
-        if (!this.isLive(container, generation)) return;
+        if (!this.isLive(dirSlot, generation)) return;
         // 403 "Access denied" lands here too — show it, never throw.
         status.setText(`error: ${errorMessage(err)}`);
       }
