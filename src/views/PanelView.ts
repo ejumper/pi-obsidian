@@ -103,10 +103,19 @@ export class PanelView extends ItemView {
     });
     this.foldersEl.style.display = "none";
 
-    // Controls row.
+    // Controls row: new session, compact, then the thinking pill.
     const controls = root.createDiv({ cls: "pi-panel-controls" });
     const newBtn = this.panelButton(controls, "plus", "New session");
     newBtn.addEventListener("click", () => void this.plugin.withChatView((v) => v.newSession()));
+    const compactBtn = this.panelButton(controls, "minimize-2", "Compact session");
+    compactBtn.addEventListener("click", () => {
+      const store = this.plugin.getActiveStore();
+      if (!store) {
+        new Notice("pi: open a session first");
+        return;
+      }
+      void store.compact();
+    });
     this.thinkingPill = new PillSelect<ThinkingLevelOption>({
       icon: "brain",
       label: "auto",
@@ -122,15 +131,6 @@ export class PanelView extends ItemView {
       },
     });
     controls.appendChild(this.thinkingPill.el);
-    const compactBtn = this.panelButton(controls, "minimize-2", "Compact session");
-    compactBtn.addEventListener("click", () => {
-      const store = this.plugin.getActiveStore();
-      if (!store) {
-        new Notice("pi: open a session first");
-        return;
-      }
-      void store.compact();
-    });
   }
 
   private panelButton(parent: HTMLElement, icon: string, label: string): HTMLButtonElement {

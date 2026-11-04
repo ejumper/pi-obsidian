@@ -249,8 +249,9 @@
 }
 
 .pi-icon-btn svg {
-  width: var(--icon-m);
-  height: var(--icon-m);
+  /* no forced size — intrinsic icon scale renders correctly on both platforms
+     (sizing via var(--icon-m) came out far too small in the panel) */
+  display: block;
   flex-shrink: 0;
   pointer-events: none;
 }
@@ -741,7 +742,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 8px;
+  padding: 16px 8px 8px;
   gap: 8px;
 }
 
@@ -796,9 +797,15 @@
 }
 
 .pi-panel-btn svg {
-  width: var(--icon-m);
-  height: var(--icon-m);
+  display: block;
+  flex-shrink: 0;
   pointer-events: none;
+}
+
+/* settings shortcuts span the full panel width */
+.pi-panel-settings .pi-panel-btn {
+  flex: 1;
+  width: auto;
 }
 
 .pi-panel-toggle {
