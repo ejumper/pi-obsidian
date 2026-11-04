@@ -222,9 +222,10 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
+  width: var(--input-height);
+  min-width: var(--input-height);
+  height: var(--input-height);
+  min-height: var(--input-height);
   padding: 0;
   border: none;
   box-shadow: none;
@@ -248,8 +249,8 @@
 }
 
 .pi-icon-btn svg {
-  width: 17px;
-  height: 17px;
+  width: var(--icon-m);
+  height: var(--icon-m);
   flex-shrink: 0;
   pointer-events: none;
 }
@@ -270,7 +271,8 @@
 }
 
 .pi-stop-btn {
-  height: 32px;
+  height: var(--input-height);
+  min-height: var(--input-height);
   padding: 0 14px;
   border: none;
   box-shadow: none;
@@ -288,7 +290,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  height: var(--input-height);
+  min-height: var(--input-height);
   max-width: 160px;
   padding: 0 10px;
   border: none;
