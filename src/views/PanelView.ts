@@ -4,7 +4,10 @@
 
 import { ItemView, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type { ThinkingLevelOption } from "../state/agent-store";
+import { resolveServerPath } from "../state/paths";
+import type { SessionInfo } from "../api/types";
 import { PillSelect } from "./panel/PillSelect";
+import { ServerTree } from "./panel/ServerTree";
 import { SessionList } from "./panel/SessionList";
 import type PiPlugin from "../main";
 
@@ -21,7 +24,9 @@ export class PanelView extends ItemView {
   private toggleRecentEl!: HTMLButtonElement;
   private toggleFoldersEl!: HTMLButtonElement;
   private thinkingPill!: PillSelect<ThinkingLevelOption>;
-  private foldersEl!: HTMLElement;
+  private tree: ServerTree | null = null;
+  private sessionsSnapshot: SessionInfo[] = [];
+  private runningSnapshot: string[] = [];
   private mainEl!: HTMLElement;
   private mode: PanelMode = "recent";
 
@@ -97,11 +102,6 @@ export class PanelView extends ItemView {
       onOpen: (id) => void this.plugin.openSessionInChat(id),
     });
     this.mainEl.appendChild(this.list.el);
-    this.foldersEl = this.mainEl.createDiv({
-      cls: "pi-panel-folders",
-      text: "Folders view lands in Phase 4",
-    });
-    this.foldersEl.style.display = "none";
 
     // Controls row: new session, compact, then the thinking pill.
     const controls = root.createDiv({ cls: "pi-panel-controls" });
@@ -148,8 +148,38 @@ export class PanelView extends ItemView {
     this.toggleFoldersEl.classList.toggle("is-active", mode === "folders");
     const recent = mode === "recent";
     this.list.el.style.display = recent ? "" : "none";
-    this.foldersEl.style.display = recent ? "none" : "";
-    if (recent) void this.refresh();
+    if (recent) {
+      if (this.tree) this.tree.el.style.display = "none";
+      void this.refresh();
+    } else {
+      void this.ensureTree();
+    }
+  }
+
+  /** Lazily build the folders tree (root = Default Session Path, else the vault prefix). */
+  private async ensureTree(): Promise<void> {
+    if (this.tree) {
+      this.tree.el.style.display = "";
+      this.tree.refresh();
+      return;
+    }
+    try {
+      const root = await resolveServerPath(
+        this.plugin.client,
+        this.plugin.settings.defaultSessionPath || this.plugin.settings.pathPrefix
+      );
+      this.tree = new ServerTree({
+        rootPath: root,
+        listDir: (path) => this.plugin.client.listDir(path).then((r) => r.entries),
+        getSessions: (dir) => this.sessionsSnapshot.filter((s) => s.cwd === dir),
+        runningIds: () => this.runningSnapshot,
+        onNewSession: (cwd) => void this.plugin.withChatView((v) => v.prepareNewSession(cwd)),
+        onOpenSession: (id) => void this.plugin.openSessionInChat(id),
+      });
+      this.mainEl.appendChild(this.tree.el);
+    } catch (e) {
+      new Notice(`pi: ${String(e)}`);
+    }
   }
 
   // ---------- data ----------
@@ -161,7 +191,10 @@ export class PanelView extends ItemView {
       const sessions = [...res.sessions].sort((a, b) =>
         b.modified.localeCompare(a.modified)
       );
+      this.sessionsSnapshot = sessions;
+      this.runningSnapshot = res.runningSessionIds;
       this.list.setSessions(sessions, res.runningSessionIds);
+      this.tree?.refresh();
       const store = this.plugin.getActiveStore();
       if (store) this.thinkingPill.setValue(store.state.thinkingLevel);
     } catch (e) {
