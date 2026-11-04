@@ -1,7 +1,7 @@
-// The real chat view: top composer (editor + primary button row), transcript
-// streaming below, session bar on top. Layout per PLAN/PHASES/PHASE-1.md §0.0.
+// The chat view: session bar on top, transcript in the middle, composer block
+// pinned to the bottom (auto-grow editor + button row). Per PLAN/PHASES/PHASE-2.md.
 
-import { ItemView, Menu, Notice, WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage } from "../api/types";
 import { MessageRenderer } from "./render";
@@ -29,8 +29,15 @@ export class ChatView extends ItemView {
   private sessionTitleEl!: HTMLElement;
   private barStatusEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
+  private modelChipEl!: HTMLButtonElement;
+  private modelChipNameEl!: HTMLElement;
+  private attachBtnEl!: HTMLButtonElement;
+  private includeBtnEl!: HTMLButtonElement;
   private sendBtnEl!: HTMLButtonElement;
-  private abortBtnEl!: HTMLButtonElement;
+  private queueBtnEl!: HTMLButtonElement;
+  private stopBtnEl!: HTMLButtonElement;
+  private sendGroupEl!: HTMLElement;
+  private runGroupEl!: HTMLElement;
   private transcriptEl!: HTMLElement;
 
   private messageEls: HTMLElement[] = [];
@@ -56,6 +63,7 @@ export class ChatView extends ItemView {
       onInsertText: (text) => {
         this.inputEl.value = this.inputEl.value
           ? `${this.inputEl.value}\n${text}` : text;
+        this.growEditor();
       },
       onSessionRenamed: (_id, name) => this.updateTitle(name),
       onSessionCreated: (info) => {
@@ -111,40 +119,26 @@ export class ChatView extends ItemView {
     root.empty();
     root.addClass("pi-chat");
 
-    // Session bar (top): title → picker, new session, model/thinking, status.
+    // Session bar (top): title (→ picker stopgap), status, version.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
     this.sessionTitleEl = bar.createEl("button", { cls: "pi-chat-title", text: "pi" });
     this.sessionTitleEl.addEventListener("click", () => void this.openPicker());
-    bar.createEl("button", { cls: "pi-chat-new", text: "+" }).addEventListener("click", () =>
-      void this.newSession()
-    );
-    const modelBtn = bar.createEl("button", { cls: "pi-chat-model", text: "model" });
-    modelBtn.addEventListener("click", (ev) => void this.openModelMenu(ev));
     this.barStatusEl = bar.createDiv({ cls: "pi-chat-status", text: "idle" });
     bar.createDiv({
       cls: "pi-chat-version",
       text: `v${this.plugin.manifest.version} (${BUILD_ID})`,
     });
 
-    // Composer block (top, under the bar).
+    // Transcript (middle).
+    this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
+
+    // Composer block (bottom).
     const composer = root.createDiv({ cls: "pi-chat-composer" });
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-chat-input",
       placeholder: "Prompt… (Enter sends, Shift+Enter newline)",
     });
-    const row = composer.createDiv({ cls: "pi-chat-composer-row" });
-    const attachBtn = row.createEl("button", { text: "attach" });
-    attachBtn.disabled = true;
-    attachBtn.setAttr("title", "File attachments — coming in Phase 2");
-    const mentionBtn = row.createEl("button", { text: "include files" });
-    mentionBtn.disabled = true;
-    mentionBtn.setAttr("title", "Open-file mentions — coming in Phase 2");
-    this.abortBtnEl = row.createEl("button", { text: "abort" });
-    this.abortBtnEl.style.display = "none";
-    this.abortBtnEl.addEventListener("click", () => void this.store.abort());
-    this.sendBtnEl = row.createEl("button", { text: "send", cls: "mod-cta" });
-    this.sendBtnEl.addEventListener("click", () => void this.sendCurrent());
-
+    this.inputEl.addEventListener("input", () => this.growEditor());
     this.inputEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && !ev.shiftKey) {
         ev.preventDefault();
@@ -152,14 +146,65 @@ export class ChatView extends ItemView {
       }
     });
 
-    // Transcript (below the composer).
-    this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
+    const row = composer.createDiv({ cls: "pi-chat-row" });
+    const left = row.createDiv({ cls: "pi-chat-row-left" });
+    this.sendGroupEl = row.createDiv({ cls: "pi-chat-row-right" });
+    this.runGroupEl = row.createDiv({ cls: "pi-chat-row-right" });
+
+    // Left: attach, include/hide, model chip.
+    this.attachBtnEl = this.iconButton(left, "paperclip", "Attach files (coming in Phase 5)");
+    this.attachBtnEl.disabled = true;
+    this.includeBtnEl = this.iconButton(left, "file", "Include open files in prompt (coming in Phase 5)");
+    this.includeBtnEl.disabled = true;
+
+    this.modelChipEl = left.createEl("button", { cls: "pi-model-chip" });
+    setIcon(this.modelChipEl.createSpan({ cls: "pi-model-icon" }), "cpu");
+    this.modelChipNameEl = this.modelChipEl.createSpan({ cls: "pi-model-name", text: "model" });
+    this.modelChipEl.addEventListener("click", (ev) => void this.openModelMenu(ev));
+
+    // Right, idle: send. Right, running: stop + queue.
+    this.sendBtnEl = this.iconButton(this.sendGroupEl, "arrow-up", "Send", ["pi-send-btn"]);
+    this.sendBtnEl.addEventListener("click", () => void this.sendCurrent());
+
+    this.stopBtnEl = this.runGroupEl.createEl("button", { cls: "pi-stop-btn", text: "Stop" });
+    this.stopBtnEl.addEventListener("click", () => void this.store.abort());
+
+    this.queueBtnEl = this.iconButton(this.runGroupEl, "arrow-right", "Queue (steer)", ["pi-queue-btn"]);
+    this.queueBtnEl.addEventListener("click", () => void this.sendCurrent());
+  }
+
+  private iconButton(
+    parent: HTMLElement, icon: string, label: string, extraCls: string[] = []
+  ): HTMLButtonElement {
+    const btn = parent.createEl("button", {
+      cls: ["pi-icon-btn", ...extraCls].join(" "),
+      attr: { "aria-label": label, title: label },
+    });
+    setIcon(btn, icon);
+    return btn;
+  }
+
+  /** Auto-grow editor: 1 row → grows with content → CSS caps it, then scrolls. */
+  private growEditor(): void {
+    const el = this.inputEl;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+    this.updateComposerState();
+  }
+
+  private updateComposerState(): void {
+    const hasText = this.inputEl.value.trim().length > 0;
+    const running = this.store.state.agentRunning;
+    this.sendBtnEl.disabled = !hasText;
+    this.queueBtnEl.disabled = !hasText;
+    this.queueBtnEl.classList.toggle("has-text", hasText);
+    this.sendGroupEl.style.display = running ? "none" : "";
+    this.runGroupEl.style.display = running ? "" : "none";
   }
 
   // ---------- composer actions ----------
 
   private async sendCurrent(): Promise<void> {
-    if (!this.store || !this.inputEl) return;
     const text = this.inputEl.value.trim();
     if (!text) return;
     const s = this.store.state;
@@ -174,8 +219,9 @@ export class ChatView extends ItemView {
     }
 
     this.inputEl.value = "";
+    this.growEditor();
     if (s.agentRunning) {
-      void this.store.steer(text); // Enter = steer while the agent runs
+      void this.store.steer(text); // Queue button / Enter while running = steer
     } else {
       void this.store.sendPrompt(text);
     }
@@ -270,8 +316,8 @@ export class ChatView extends ItemView {
       s.agentRunning ? `running${tools}` : "idle"
     );
 
-    this.sendBtnEl.setText(s.agentRunning ? "steer" : "send");
-    this.abortBtnEl.style.display = s.agentRunning ? "" : "none";
+    this.modelChipNameEl.setText(s.currentModel?.modelId ?? "model");
+    this.updateComposerState();
 
     const stick = this.isNearBottom();
     const msgs = s.messages;

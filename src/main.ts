@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Menu, Notice, Plugin } from "obsidian";
 import { PiClient } from "./api/client";
 import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
 import { ChatView, VIEW_TYPE_PI_CHAT } from "./views/ChatView";
@@ -117,17 +117,14 @@ export default class PiPlugin extends Plugin {
 
   onunload(): void {}
 
-  /** Open the chat view in the configured placement (main area or sidebar). */
+  /** Open the chat view in the main area. */
   async activateChatView(): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0];
     if (existing) {
       this.app.workspace.revealLeaf(existing);
       return;
     }
-    const leaf: WorkspaceLeaf =
-      this.settings.placement === "sidebar"
-        ? this.app.workspace.getRightLeaf(false)!
-        : this.app.workspace.getLeaf("tab");
+    const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE_PI_CHAT, active: true });
     this.app.workspace.revealLeaf(leaf);
   }
