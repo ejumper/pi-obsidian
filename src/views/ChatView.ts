@@ -159,6 +159,14 @@ export class ChatView extends ItemView {
     const root = this.contentEl;
     root.empty();
     root.addClass("pi-chat");
+    // Obsidian pads view content at the bottom (mobile reserves navbar /
+    // keyboard room there — the "phantom gap" of the keyboard saga). We own
+    // the bottom edge: the composer is screen-fixed and the transcript ends
+    // at the composer top, so the app's reserve padding is pure dead space.
+    // Zeroing it is what full-height plugin views do (obsidian-chatting does
+    // the same). Without this the box ends at the composer but the content
+    // box ends one reserve-height early — the blank above the composer.
+    root.style.paddingBottom = "0px";
 
     // Session bar (top): plain title, status, context size.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
