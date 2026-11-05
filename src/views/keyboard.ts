@@ -78,11 +78,13 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
       SAFE_BOTTOM_VAR,
       Platform.isMobile ? "max(env(safe-area-inset-bottom), 20px)" : "0px"
     );
+    // Pin continuously while the keyboard is up: iOS lands its reveal scroll
+    // asynchronously (~1s late on some devices) — a one-shot undo misses it.
+    if (kb > 0) undoKeyboardScroll(root);
   };
 
   const apply = (): void => {
     applyVars();
-    if (readKeyboardHeightPx() > 0) undoKeyboardScroll(root);
   };
 
   const chaseTimer = setInterval(applyVars, 250);
