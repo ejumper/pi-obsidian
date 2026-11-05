@@ -27,12 +27,23 @@ function readKeyboardHeightPx(): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-/** Height of Obsidian mobile's floating bottom navbar (0 on desktop). */
+/** Height of Obsidian mobile's floating bottom navbar (0 on desktop).
+ *  The `.is-mobile` element that defines --navbar-height isn't guaranteed to
+ *  be body — scan the likely holders, then fall back to the documented value. */
 function navbarClearancePx(): number {
   if (!Platform.isMobile) return 0;
-  const raw = getComputedStyle(document.body).getPropertyValue("--navbar-height").trim();
-  const value = parseFloat(raw);
-  return Number.isFinite(value) && value > 0 ? value : 0;
+  const holders: (Element | null)[] = [
+    document.body,
+    document.documentElement,
+    document.querySelector(".app-container"),
+  ];
+  for (const el of holders) {
+    if (!el) continue;
+    const raw = getComputedStyle(el).getPropertyValue("--navbar-height").trim();
+    const value = parseFloat(raw);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 80; // app.css: `.is-mobile { --navbar-height: 80px }`
 }
 
 /** Undo the scroll the keyboard reveal adds to the page and any scrolled
