@@ -45,6 +45,17 @@
   font-weight: var(--h1-weight);
   line-height: var(--h1-line-height);
   color: var(--text-normal);
+  /* one line always: length cap OR line cap, whichever hits first */
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pi-chat-status,
+.pi-chat-version {
+  flex-shrink: 0;
 }
 
 .pi-chat-status {
@@ -57,18 +68,19 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 10px 20px;
+  padding: 10px 10px calc(var(--pi-navbar-clearance, 0px) + 8px);
 }
 
 .pi-chat-transcript .pi-msg {
   margin-bottom: 12px;
 }
 
-/* Composer pinned to the bottom; floats above the soft keyboard. */
+/* Composer pinned to the bottom; clears the soft keyboard when open and the
+   mobile floating navbar when closed (either one, never both + a gap). */
 .pi-chat-composer {
   flex-shrink: 0;
   padding: 10px;
-  margin-bottom: var(--pi-keyboard-inset, 0px);
+  margin-bottom: calc(max(var(--pi-keyboard-inset, 0px), var(--pi-navbar-clearance, 0px)) + 6px);
   border-top: 1px solid var(--background-modifier-border);
 }
 
@@ -857,6 +869,10 @@
 
 /* App-shell style isolation: Obsidian's global button rules (large mobile
    radii, centered content) leak into pi-web's own button geometry. */
+.pi-transcript-react .markdown-body {
+  padding: 0;
+}
+
 .pi-transcript-react button {
   appearance: none;
   -webkit-appearance: none;

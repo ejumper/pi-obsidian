@@ -184,7 +184,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             minWidth: 0,
             background: "var(--user-bg)",
             borderRadius: 12,
-            padding: "6px 12px",
+            padding: "6px 8px",
             fontSize: 14,
             lineHeight: 1.6,
             color: "var(--text)",

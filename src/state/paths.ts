@@ -6,17 +6,28 @@
 
 import type { PiClient } from "../api/client";
 
-let homeCache: string | null = null;
+let homeCache: { home: string; jumperpediaHome: string } | null = null;
 
 /** Resolve a settings-form path (may start with `~`) to an absolute server path. */
 export async function resolveServerPath(client: PiClient, value: string): Promise<string> {
   const trimmed = value.trim();
   if (!trimmed.startsWith("~")) return trimmed;
   if (homeCache === null) {
-    const { home } = await client.getHome();
-    homeCache = home.replace(/\/+$/, "");
+    const { home, jumperpediaHome } = await client.getHome();
+    homeCache = {
+      home: home.replace(/\/+$/, ""),
+      jumperpediaHome: jumperpediaHome.replace(/\/+$/, ""),
+    };
   }
-  return homeCache + trimmed.slice(1);
+  const rest = trimmed.slice(1); // e.g. "/HalfaCloud/Jumperpedia/..."
+  // The server computes the real Jumperpedia location (env-aware — a container's
+  // homedir is NOT the host's, e.g. /home/node). `~/HalfaCloud/Jumperpedia…`
+  // paths are the pinned convention and map there; anything else uses home.
+  const pinned = "/HalfaCloud/Jumperpedia";
+  if (rest === pinned || rest.startsWith(`${pinned}/`)) {
+    return homeCache.jumperpediaHome + rest.slice(pinned.length);
+  }
+  return homeCache.home + rest;
 }
 
 export interface CwdChainInput {
