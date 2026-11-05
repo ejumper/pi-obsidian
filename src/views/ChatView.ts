@@ -49,7 +49,7 @@ export class ChatView extends ItemView {
   private attachments!: AttachmentStage;
   private detachKeyboard: (() => void) | null = null;
   private composerEl!: HTMLElement;
-  private composerObserver: ResizeObserver | null = null;
+  private barSizeEl!: HTMLElement;
   private geometryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -98,15 +98,14 @@ export class ChatView extends ItemView {
           this.composerEl.style.left = `${Math.round(rect.left)}px`;
           this.composerEl.style.width = `${Math.round(rect.width)}px`;
           this.composerEl.style.bottom = `${composerBottomPx()}px`;
+          // The transcript must END at the composer top — the app's box chain
+          // doesn't (it runs behind the composer/navbar and pads for the
+          // keyboard). Screen geometry again: content height = composer top.
+          const composerTop = this.composerEl.getBoundingClientRect().top;
+          this.contentEl.style.height =
+            `${Math.max(160, Math.round(composerTop - rect.top - 6))}px`;
         }
       }, 250);
-      this.composerObserver = new ResizeObserver(() => {
-        this.contentEl.style.setProperty(
-          "--pi-composer-h",
-          `${this.composerEl.offsetHeight}px`
-        );
-      });
-      this.composerObserver.observe(this.composerEl);
       this.transcript = new TranscriptRenderer(this.transcriptEl, {
         app: this.app,
         sourcePath: "",
@@ -148,8 +147,7 @@ export class ChatView extends ItemView {
     this.detachKeyboard = null;
     if (this.geometryTimer) clearInterval(this.geometryTimer);
     this.geometryTimer = null;
-    this.composerObserver?.disconnect();
-    this.composerObserver = null;
+
     this.composerEl?.remove();
     this.transcript?.unmount();
     this.store?.destroy();
@@ -162,14 +160,11 @@ export class ChatView extends ItemView {
     root.empty();
     root.addClass("pi-chat");
 
-    // Session bar (top): plain title, status, version.
+    // Session bar (top): plain title, status, context size.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
     this.sessionTitleEl = bar.createEl("h1", { cls: "pi-chat-title", text: "pi" });
-    this.barStatusEl = bar.createDiv({ cls: "pi-chat-status", text: "idle" });
-    bar.createDiv({
-      cls: "pi-chat-version",
-      text: `v${this.plugin.manifest.version} (${BUILD_ID})`,
-    });
+    this.barStatusEl = bar.createDiv({ cls: "pi-chat-status" });
+    this.barSizeEl = bar.createDiv({ cls: "pi-chat-size" });
 
     // Transcript (middle).
     this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
@@ -422,6 +417,27 @@ export class ChatView extends ItemView {
     new Notice(`pi: thinking ${next}`);
   }
 
+  /** Session-bar context size — pi-web's AppShell format translated:
+   *  "<current>/<max> | <pct>%", k/M abbreviation per pi-web's fmt, and
+   *  pi-web's warning thresholds (>70 warn, >90 crit) on theme colors. */
+  private renderContextSize(
+    cu: { percent: number | null; contextWindow: number; tokens: number | null } | null
+  ): void {
+    const el = this.barSizeEl;
+    if (!cu?.contextWindow) {
+      el.setText("");
+      return;
+    }
+    const fmt = (n: number) =>
+      n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
+    const cur = cu.tokens !== null ? fmt(cu.tokens) : "?";
+    const pct = cu.percent !== null ? ` | ${cu.percent.toFixed(0)}%` : "";
+    el.setText(`${cur}/${fmt(cu.contextWindow)}${pct}`);
+    el.removeClass("pi-ctx-warn", "pi-ctx-crit");
+    if (cu.percent !== null && cu.percent > 90) el.addClass("pi-ctx-crit");
+    else if (cu.percent !== null && cu.percent > 70) el.addClass("pi-ctx-warn");
+  }
+
   // ---------- rendering ----------
 
   private render(): void {
@@ -429,13 +445,15 @@ export class ChatView extends ItemView {
 
     this.updateTitle(s.sessionName);
     const tools = s.agentPhase?.kind === "running_tools" ? ` · ${s.agentPhase.tools.map((t) => t.name).join(", ")}` : "";
+    // "idle" is the absence of news — only non-idle states earn bar space.
     this.barStatusEl.setText(
       s.loading ? "loading…" :
       s.error ? `error: ${s.error}` :
       s.live ? "live (read-only)" :
       s.isCompacting ? "compacting…" :
-      s.agentRunning ? `running${tools}` : "idle"
+      s.agentRunning ? `running${tools}` : ""
     );
+    this.renderContextSize(s.contextUsage);
 
     this.modelChipNameEl.setText(s.currentModel?.modelId ?? "model");
     this.updateComposerState();

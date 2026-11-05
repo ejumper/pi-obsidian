@@ -55,7 +55,7 @@
 }
 
 .pi-chat-status,
-.pi-chat-version {
+.pi-chat-size {
   flex-shrink: 0;
 }
 
@@ -65,11 +65,21 @@
   font-size: var(--font-ui-smaller);
 }
 
+.pi-chat-status:empty {
+  display: none;
+}
+
+.pi-chat-status:empty + .pi-chat-size {
+  margin-left: auto;
+}
+
 .pi-chat-transcript {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 10px calc(var(--pi-composer-h, 0px) + 8px);
+  /* the transcript ends at the composer top (JS-set content height) — no
+     composer reserve padding needed */
+  padding: 10px 10px 8px;
 }
 
 .pi-chat-transcript .pi-msg {
@@ -296,10 +306,19 @@
   overflow-wrap: break-word;
 }
 
-.pi-chat-version {
+.pi-chat-size {
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.pi-chat-size.pi-ctx-warn {
+  color: var(--color-yellow);
+}
+
+.pi-chat-size.pi-ctx-crit {
+  color: var(--text-error);
 }
 
 /* ---------- session list (sidebar panel) ----------
