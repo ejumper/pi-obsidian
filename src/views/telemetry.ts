@@ -8,6 +8,8 @@ export interface TelemetryReadout {
   vvHeight: number;
   composerBottom: number;
   rootBottom: number;
+  pageScrollTop: number;
+  rootScrollTop: number;
   keyboardVar: string;
   safeBottomVar: string;
   composerMargin: string;
@@ -21,6 +23,8 @@ export function readTelemetry(root: HTMLElement, composer: HTMLElement): Telemet
     vvHeight: vv?.height ?? -1,
     composerBottom: Math.round(composer.getBoundingClientRect().bottom),
     rootBottom: Math.round(root.getBoundingClientRect().bottom),
+    pageScrollTop: document.scrollingElement?.scrollTop ?? -1,
+    rootScrollTop: root.scrollTop,
     keyboardVar: getComputedStyle(document.documentElement)
       .getPropertyValue("--keyboard-height").trim() || "(none)",
     safeBottomVar: getComputedStyle(document.body)
@@ -35,6 +39,7 @@ export function formatTelemetry(t: TelemetryReadout): string {
     `vv=${Math.round(t.vvOffsetTop)}+${Math.round(t.vvHeight)}`,
     `root.bottom=${t.rootBottom}`,
     `composer.bottom=${t.composerBottom}`,
+    `scroll=page:${t.pageScrollTop}/root:${t.rootScrollTop}`,
     `kbVar=${t.keyboardVar}`,
     `safe=${t.safeBottomVar}`,
     `margin=${t.composerMargin}`,

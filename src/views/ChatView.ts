@@ -89,20 +89,23 @@ export class ChatView extends ItemView {
         onChange: () => this.updateComposerState(),
       });
       this.buildDom();
-      document.body.classList.toggle(
-        "pi-no-keyboard-inset",
-        this.plugin.settings.keyboardInsetMode === "none"
-      );
-      if (this.plugin.settings.keyboardDebug) {
-        this.telemetryEl = this.contentEl.createDiv({ cls: "pi-kb-debug" });
-        this.telemetryTimer = setInterval(() => {
-          if (this.telemetryEl) {
-            this.telemetryEl.setText(
-              formatTelemetry(readTelemetry(this.contentEl, this.inputEl))
-            );
-          }
-        }, 500);
-      }
+      // Telemetry overlay: created once, visibility follows the setting live.
+      this.telemetryEl = this.contentEl.createDiv({ cls: "pi-kb-debug" });
+      this.telemetryEl.style.display = "none";
+      this.telemetryTimer = setInterval(() => {
+        if (!this.telemetryEl) return;
+        document.body.classList.toggle(
+          "pi-no-keyboard-inset",
+          this.plugin.settings.keyboardInsetMode === "none"
+        );
+        const show = this.plugin.settings.keyboardDebug;
+        this.telemetryEl.style.display = show ? "" : "none";
+        if (show) {
+          this.telemetryEl.setText(
+            formatTelemetry(readTelemetry(this.contentEl, this.inputEl))
+          );
+        }
+      }, 500);
       this.transcript = new TranscriptRenderer(this.transcriptEl, {
         app: this.app,
         sourcePath: "",
