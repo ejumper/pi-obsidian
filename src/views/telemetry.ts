@@ -10,6 +10,9 @@ export interface TelemetryReadout {
   rootBottom: number;
   pageScrollTop: number;
   rootScrollTop: number;
+  rootPaddingBottom: string;
+  insetVar: string;
+  navbarVar: string;
   keyboardVar: string;
   safeBottomVar: string;
   composerMargin: string;
@@ -25,6 +28,9 @@ export function readTelemetry(root: HTMLElement, composer: HTMLElement): Telemet
     rootBottom: Math.round(root.getBoundingClientRect().bottom),
     pageScrollTop: document.scrollingElement?.scrollTop ?? -1,
     rootScrollTop: root.scrollTop,
+    rootPaddingBottom: getComputedStyle(root).paddingBottom,
+    insetVar: getComputedStyle(root).getPropertyValue("--pi-keyboard-inset").trim() || "(none)",
+    navbarVar: getComputedStyle(root).getPropertyValue("--pi-navbar-clearance").trim() || "(none)",
     keyboardVar: getComputedStyle(document.documentElement)
       .getPropertyValue("--keyboard-height").trim() || "(none)",
     safeBottomVar: getComputedStyle(document.body)
@@ -40,6 +46,8 @@ export function formatTelemetry(t: TelemetryReadout): string {
     `root.bottom=${t.rootBottom}`,
     `composer.bottom=${t.composerBottom}`,
     `scroll=page:${t.pageScrollTop}/root:${t.rootScrollTop}`,
+    `rootPad=${t.rootPaddingBottom}`,
+    `inset=${t.insetVar} navbar=${t.navbarVar}`,
     `kbVar=${t.keyboardVar}`,
     `safe=${t.safeBottomVar}`,
     `margin=${t.composerMargin}`,

@@ -15,6 +15,7 @@ const KEYBOARD_HEIGHT_VAR = "--keyboard-height";
 const INSET_VAR = "--pi-keyboard-inset";
 const NAVBAR_VAR = "--pi-navbar-clearance";
 const SAFE_BOTTOM_VAR = "--pi-safe-bottom";
+const RESERVE_VAR = "--pi-content-reserve";
 
 /** Numeric px value of the root `--keyboard-height`; 0 when empty/unparseable. */
 function readKeyboardHeightPx(): number {
@@ -58,6 +59,11 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const apply = (): void => {
+    // The app sizes the view to end at the keyboard AND may pad its content
+    // bottom further (the residual gap). Measure that inside reserve so CSS
+    // can cancel it exactly — self-correcting whatever the source.
+    const reserve = parseFloat(getComputedStyle(root).paddingBottom) || 0;
+    root.style.setProperty(RESERVE_VAR, `${reserve}px`);
     root.style.setProperty(INSET_VAR, `${readKeyboardHeightPx()}px`);
     root.style.setProperty(NAVBAR_VAR, `${navbarClearancePx()}px`);
     root.style.setProperty(
@@ -111,5 +117,6 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     root.style.removeProperty(INSET_VAR);
     root.style.removeProperty(NAVBAR_VAR);
     root.style.removeProperty(SAFE_BOTTOM_VAR);
+    root.style.removeProperty(RESERVE_VAR);
   };
 }

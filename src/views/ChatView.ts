@@ -50,6 +50,7 @@ export class ChatView extends ItemView {
   private attachments!: AttachmentStage;
   private detachKeyboard: (() => void) | null = null;
   private telemetryEl: HTMLElement | null = null;
+  private composerEl!: HTMLElement;
   private telemetryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -102,7 +103,7 @@ export class ChatView extends ItemView {
         this.telemetryEl.style.display = show ? "" : "none";
         if (show) {
           this.telemetryEl.setText(
-            formatTelemetry(readTelemetry(this.contentEl, this.inputEl))
+            formatTelemetry(readTelemetry(this.contentEl, this.composerEl))
           );
         }
       }, 500);
@@ -173,6 +174,7 @@ export class ChatView extends ItemView {
 
     // Composer block (bottom).
     const composer = root.createDiv({ cls: "pi-chat-composer" });
+    this.composerEl = composer;
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-chat-input",
       placeholder: "Prompt… (Enter sends, Shift+Enter newline)",

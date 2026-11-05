@@ -28,6 +28,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* The view already ends at the keyboard; any content-bottom reserve the app
+     adds is cancelled here so the composer lands just above it. */
+  margin-bottom: calc(6px - var(--pi-content-reserve, 0px));
 }
 
 .pi-chat-bar {
@@ -80,7 +83,6 @@
 .pi-chat-composer {
   flex-shrink: 0;
   padding: 10px;
-  margin-bottom: calc(max(var(--pi-keyboard-inset, 0px), var(--pi-navbar-clearance, 0px)) + 6px);
   border-top: 1px solid var(--background-modifier-border);
 }
 
@@ -995,8 +997,9 @@
 
 /* ---------- keyboard diagnostics ---------- */
 
-body.pi-no-keyboard-inset .pi-chat-composer {
-  margin-bottom: calc(var(--pi-navbar-clearance, 0px) + 6px);
+/* diagnostic mode: no reserve cancellation (shows the app's raw reserve) */
+body.pi-no-keyboard-inset .pi-chat {
+  margin-bottom: 6px;
 }
 
 .pi-kb-debug {
