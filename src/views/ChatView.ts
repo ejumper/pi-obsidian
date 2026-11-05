@@ -10,7 +10,6 @@ import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
 import { attachKeyboardInset, composerBottomPx } from "./keyboard";
-import { formatTelemetry, readTelemetry } from "./telemetry";
 import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
 
@@ -49,10 +48,9 @@ export class ChatView extends ItemView {
   private includeFiles = false;
   private attachments!: AttachmentStage;
   private detachKeyboard: (() => void) | null = null;
-  private telemetryEl: HTMLElement | null = null;
   private composerEl!: HTMLElement;
   private composerObserver: ResizeObserver | null = null;
-  private telemetryTimer: ReturnType<typeof setInterval> | null = null;
+  private geometryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -91,33 +89,15 @@ export class ChatView extends ItemView {
         onChange: () => this.updateComposerState(),
       });
       this.buildDom();
-      // Telemetry overlay: created once, visibility follows the setting live.
-      this.telemetryEl = this.contentEl.createDiv({ cls: "pi-kb-debug" });
-      this.telemetryEl.style.display = "none";
-      this.telemetryTimer = setInterval(() => {
-        // Fixed composer tracks the view rect and hides with the view.
+      // The fixed composer tracks the view rect and hides with the view.
+      this.geometryTimer = setInterval(() => {
         const rect = this.contentEl.getBoundingClientRect();
         const shown = this.containerEl.isShown();
         this.composerEl.style.display = shown ? "" : "none";
         if (shown) {
-          // Direct styles — custom-property inheritance to the body-attached
-          // composer has failed twice; pixels, computed here, cannot.
           this.composerEl.style.left = `${Math.round(rect.left)}px`;
           this.composerEl.style.width = `${Math.round(rect.width)}px`;
           this.composerEl.style.bottom = `${composerBottomPx()}px`;
-        }
-        document.body.classList.toggle(
-          "pi-no-keyboard-inset",
-          this.plugin.settings.keyboardInsetMode === "none"
-        );
-        if (this.telemetryEl) {
-          const show = this.plugin.settings.keyboardDebug;
-          this.telemetryEl.style.display = show ? "" : "none";
-          if (show) {
-            this.telemetryEl.setText(
-              formatTelemetry(readTelemetry(this.contentEl, this.composerEl))
-            );
-          }
         }
       }, 250);
       this.composerObserver = new ResizeObserver(() => {
@@ -166,9 +146,8 @@ export class ChatView extends ItemView {
     this.unsubscribe = null;
     this.detachKeyboard?.();
     this.detachKeyboard = null;
-    if (this.telemetryTimer) clearInterval(this.telemetryTimer);
-    this.telemetryTimer = null;
-    this.telemetryEl = null;
+    if (this.geometryTimer) clearInterval(this.geometryTimer);
+    this.geometryTimer = null;
     this.composerObserver?.disconnect();
     this.composerObserver = null;
     this.composerEl?.remove();

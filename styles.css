@@ -83,7 +83,7 @@
   position: fixed;
   left: var(--pi-view-left, 0px);
   width: var(--pi-view-width, 100vw);
-  bottom: var(--pi-kb-gap, 6px);
+  bottom: 6px; /* overridden by direct style from composerBottomPx() */
   z-index: var(--layer-sidedock, 10);
   padding: 10px;
   background: var(--background-primary);
@@ -999,23 +999,3 @@
   margin-top: 3px;
 }
 
-/* ---------- keyboard diagnostics ---------- */
-
-
-
-.pi-kb-debug {
-  position: fixed;
-  top: 60px;
-  right: 8px;
-  z-index: 100;
-  padding: 6px 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  font-family: var(--font-monospace);
-  font-size: 10px;
-  line-height: 1.5;
-  white-space: pre;
-  pointer-events: none;
-}

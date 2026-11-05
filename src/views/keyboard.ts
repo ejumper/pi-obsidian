@@ -13,10 +13,6 @@ import { Platform } from "obsidian";
 
 const KEYBOARD_HEIGHT_VAR = "--keyboard-height";
 const INSET_VAR = "--pi-keyboard-inset";
-const NAVBAR_VAR = "--pi-navbar-clearance";
-const SAFE_BOTTOM_VAR = "--pi-safe-bottom";
-const CANCEL_VAR = "--pi-kb-cancel";
-const GAP_VAR = "--pi-kb-gap";
 
 /** Numeric px value of the root `--keyboard-height`; 0 when empty/unparseable. */
 function readKeyboardHeightPx(): number {
@@ -96,32 +92,17 @@ export function composerBottomPx(): number {
 export function attachKeyboardInset(root: HTMLElement): () => void {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // All bottom-edge math happens HERE; CSS just consumes --pi-kb-gap /
-  // --pi-kb-cancel. The app sizes the view to end at the keyboard but pads the
-  // content bottom asynchronously (the phantom gap) — cancel = max(measured
-  // padding, keyboard height) is predictive at keyboard-open and exact once
-  // the padding lands. A light chase loop re-measures continuously.
+  // The app sizes the view to end at the keyboard but pads/moves container
+  // internals asynchronously (the phantom-gap saga) — so the composer is
+  // positioned from SCREEN geometry (composerBottomPx) as direct styles, and
+  // the reveal scroll iOS adds is pinned away continuously.
   const applyVars = (): void => {
-    const kb = readKeyboardHeightPx();
-    const navbar = navbarClearancePx();
-    const reserve = parseFloat(getComputedStyle(root).paddingBottom) || 0;
-    const cancel = Math.max(reserve, kb);
-    // For the body-fixed composer: distance from the SCREEN bottom.
-    const composerBottom = composerBottomPx();
-    // Published on :root — the fixed composer lives on document.body, outside
-    // the view tree, and must inherit these.
-    const target = document.documentElement.style;
-    target.setProperty(CANCEL_VAR, `${cancel}px`);
-    target.setProperty(GAP_VAR, `${composerBottom}px`);
-    target.setProperty(INSET_VAR, `${kb}px`);
-    target.setProperty(NAVBAR_VAR, `${navbar}px`);
-    target.setProperty(
-      SAFE_BOTTOM_VAR,
-      Platform.isMobile ? "max(env(safe-area-inset-bottom), 20px)" : "0px"
+    // Only --pi-keyboard-inset is consumed by CSS (input max-height). The
+    // composer position is set as direct pixel styles (composerBottomPx()).
+    document.documentElement.style.setProperty(
+      INSET_VAR,
+      `${readKeyboardHeightPx()}px`
     );
-    // Pin continuously while the keyboard is up: iOS lands its reveal scroll
-    // asynchronously (~1s late on some devices) — a one-shot undo misses it.
-    if (kb > 0) undoKeyboardScroll(root);
   };
 
   const apply = (): void => {
@@ -175,11 +156,6 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     viewport?.removeEventListener("scroll", onViewportChange);
     root.removeEventListener("focusin", onFocusIn);
     if (retryTimer) clearTimeout(retryTimer);
-    const target = document.documentElement.style;
-    target.removeProperty(INSET_VAR);
-    target.removeProperty(NAVBAR_VAR);
-    target.removeProperty(SAFE_BOTTOM_VAR);
-    target.removeProperty(CANCEL_VAR);
-    target.removeProperty(GAP_VAR);
+    document.documentElement.style.removeProperty(INSET_VAR);
   };
 }

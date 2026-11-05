@@ -14,11 +14,6 @@ export interface PiSettings {
   defaultModel: { provider: string; modelId: string } | null;
   /** Include open-file @mentions in outgoing prompts. */
   includeMentions: boolean;
-  /** Keyboard inset mode: "auto" = measured inset; "none" = no keyboard margin
-   *  (diagnostic for the double-reservation bug). */
-  keyboardInsetMode: "auto" | "none";
-  /** Show the keyboard telemetry overlay in the chat view. */
-  keyboardDebug: boolean;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
@@ -28,8 +23,6 @@ export const DEFAULT_SETTINGS: PiSettings = {
   defaultSessionPath: "",
   defaultModel: null,
   includeMentions: false,
-  keyboardInsetMode: "auto",
-  keyboardDebug: false,
 };
 
 export class PiSettingTab extends PluginSettingTab {
@@ -79,35 +72,6 @@ export class PiSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.defaultSessionPath)
           .onChange(async (value) => {
             this.plugin.settings.defaultSessionPath = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl).setName("Debug").setHeading();
-
-    new Setting(containerEl)
-      .setName("Keyboard inset mode")
-      .setDesc("auto = measured clearance above the keyboard; none = no keyboard margin (diagnostic)")
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("auto", "auto")
-          .addOption("none", "none")
-          .setValue(this.plugin.settings.keyboardInsetMode)
-          .onChange(async (value) => {
-            this.plugin.settings.keyboardInsetMode = value === "none" ? "none" : "auto";
-            document.body.classList.toggle("pi-no-keyboard-inset", this.plugin.settings.keyboardInsetMode === "none");
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Keyboard telemetry overlay")
-      .setDesc("Live geometry readout in the chat view (for keyboard debugging)")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.keyboardDebug)
-          .onChange(async (value) => {
-            this.plugin.settings.keyboardDebug = value;
             await this.plugin.saveSettings();
           })
       );

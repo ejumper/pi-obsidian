@@ -25,10 +25,18 @@ const prod = process.argv[2] === "production";
 
 function copyStatic() {
   fs.mkdirSync(VAULT_PLUGIN_DIR, { recursive: true });
+  fs.mkdirSync("dist", { recursive: true });
   fs.copyFileSync("manifest.json", path.join(VAULT_PLUGIN_DIR, "manifest.json"));
   fs.copyFileSync("styles.css", path.join(VAULT_PLUGIN_DIR, "styles.css"));
   // Marker file for pjeby's Hot Reload plugin.
   fs.writeFileSync(path.join(VAULT_PLUGIN_DIR, ".hotreload"), "");
+}
+
+function stageDist() {
+  for (const f of ["main.js", "manifest.json", "styles.css"]) {
+    const src = f === "main.js" ? path.join(VAULT_PLUGIN_DIR, f) : f;
+    fs.copyFileSync(src, path.join("dist", f));
+  }
 }
 
 copyStatic();
@@ -49,6 +57,7 @@ const context = await esbuild.context({
 if (prod) {
   await context.rebuild();
   await context.dispose();
+  stageDist();
 } else {
   await context.watch();
   console.log(`watching → ${VAULT_PLUGIN_DIR}`);

@@ -1,12 +1,14 @@
 {
   "name": "pi-obsidian",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Alternate GUI front-end for the pi agent harness, replacing the pi-web PWA.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "npm run build && node test/headless-check.mjs",
+    "check:headless": "node test/headless-check.mjs"
   },
   "keywords": [
     "obsidian",

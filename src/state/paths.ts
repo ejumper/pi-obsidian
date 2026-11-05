@@ -57,10 +57,3 @@ export async function resolveNewSessionCwd(
   return resolveServerPath(client, chosen);
 }
 
-/** Parent directory of a server path ("/" is the floor). */
-export function parentPath(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const idx = trimmed.lastIndexOf("/");
-  if (idx <= 0) return "/";
-  return trimmed.slice(0, idx);
-}
