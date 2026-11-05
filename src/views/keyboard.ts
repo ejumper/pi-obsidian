@@ -21,16 +21,15 @@ function readKeyboardHeightPx(): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-/** How much of the keyboard actually occludes the viewport. Some WebViews
- *  shrink the visual viewport when the keyboard opens — if so, the plain
- *  keyboard-height value would be applied twice (double-count gap). */
-function keyboardOcclusionPx(): number {
-  const keyboard = readKeyboardHeightPx();
-  if (keyboard <= 0) return 0;
+/** How much the soft keyboard actually occludes THIS view: the distance from
+ *  the view root's bottom edge to the visual viewport's bottom edge. Measured,
+ *  not derived from --keyboard-height — that variable's semantics don't match
+ *  occlusion on iOS Obsidian (produced a giant gap), while this is true by
+ *  definition regardless of who shrinks or pans what. */
+function keyboardOcclusionPx(root: HTMLElement): number {
   const vv = window.visualViewport;
-  const visibleBottom = (vv?.offsetTop ?? 0) + (vv?.height ?? window.innerHeight);
-  const alreadyHidden = Math.max(0, window.innerHeight - visibleBottom);
-  return Math.max(0, keyboard - alreadyHidden);
+  const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  return Math.max(0, root.getBoundingClientRect().bottom - visibleBottom);
 }
 
 /** Height of Obsidian mobile's floating bottom navbar (0 on desktop). */
@@ -45,7 +44,7 @@ function navbarClearancePx(): number {
  *  properties on `root`. Returns a cleanup function. */
 export function attachKeyboardInset(root: HTMLElement): () => void {
   const apply = (): void => {
-    root.style.setProperty(INSET_VAR, `${keyboardOcclusionPx()}px`);
+    root.style.setProperty(INSET_VAR, `${keyboardOcclusionPx(root)}px`);
     root.style.setProperty(NAVBAR_VAR, `${navbarClearancePx()}px`);
     root.style.setProperty(
       SAFE_BOTTOM_VAR,

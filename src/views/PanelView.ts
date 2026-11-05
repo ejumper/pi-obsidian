@@ -99,14 +99,20 @@ export class PanelView extends ItemView {
     // Session area.
     this.mainEl = root.createDiv({ cls: "pi-panel-main" });
     this.list = new SessionList({
-      onOpen: (id) => void this.plugin.openSessionInChat(id),
+      onOpen: (id) => {
+        void this.plugin.openSessionInChat(id);
+        this.collapse();
+      },
     });
     this.mainEl.appendChild(this.list.el);
 
     // Controls row: new session, compact, then the thinking pill.
     const controls = root.createDiv({ cls: "pi-panel-controls" });
     const newBtn = this.panelButton(controls, "plus", "New session");
-    newBtn.addEventListener("click", () => void this.plugin.prepareNewSession());
+    newBtn.addEventListener("click", () => {
+      void this.plugin.prepareNewSession();
+      this.collapse();
+    });
     const compactBtn = this.panelButton(controls, "minimize-2", "Compact session");
     compactBtn.addEventListener("click", () => {
       const store = this.plugin.getActiveStore();
@@ -131,6 +137,19 @@ export class PanelView extends ItemView {
       },
     });
     controls.appendChild(this.thinkingPill.el);
+  }
+
+  /** Close the right sidebar/drawer after an action that leaves the panel
+   *  (session selected, new session started). */
+  private collapse(): void {
+    try {
+      const split = (this.app.workspace as unknown as {
+        rightSplit?: { collapse?: () => void };
+      }).rightSplit;
+      split?.collapse?.();
+    } catch {
+      // never let a chrome nicety break the action itself
+    }
   }
 
   private panelButton(parent: HTMLElement, icon: string, label: string): HTMLButtonElement {
@@ -174,8 +193,14 @@ export class PanelView extends ItemView {
         listDir: (path) => this.plugin.client.listDir(path).then((r) => r.entries),
         getSessions: (dir) => this.sessionsSnapshot.filter((s) => s.cwd === dir),
         runningIds: () => this.runningSnapshot,
-        onNewSession: (cwd) => void this.plugin.withChatView((v) => v.prepareNewSession(cwd)),
-        onOpenSession: (id) => void this.plugin.openSessionInChat(id),
+        onNewSession: (cwd) => {
+          void this.plugin.withChatView((v) => v.prepareNewSession(cwd));
+          this.collapse();
+        },
+        onOpenSession: (id) => {
+          void this.plugin.openSessionInChat(id);
+          this.collapse();
+        },
       });
       this.mainEl.appendChild(this.tree.el);
     } catch (e) {
