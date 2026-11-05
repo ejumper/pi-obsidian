@@ -72,16 +72,20 @@ speaking the pi-web site's existing HTTP+SSE API over Tailscale.
       live-streaming spike view; validate the dev loop. (Phone rows 6–10 deferred to later exit.)
 - [x] **Phase 1 — Core chat** (`PHASES/PHASE-1.md`): state store port, chat view, renderers,
       picker/modals, commands, keyboard inset. (Virtualization deferred to phone perf pass.)
-- [ ] **Phase 2 — Layout & Composer** (`PHASES/PHASE-2.md`): bottom composer, auto-grow editor,
+- [x] **Phase 2 — Layout & Composer** (`PHASES/PHASE-2.md`): bottom composer, auto-grow editor,
       button-row states (send/stop/queue/attach/include/model), placement removal.
-- [ ] **Phase 3 — Right panel** (`PHASES/PHASE-3.md`): pi-panel view, pill-selector, Recent
+- [x] **Phase 3 — Right panel** (`PHASES/PHASE-3.md`): pi-panel view, pill-selector, Recent
       session list, control + settings buttons, Models settings section.
-- [ ] **Phase 4 — Folders picker & session paths** (`PHASES/PHASE-4.md`): server tree, per-dir
+- [x] **Phase 4 — Folders picker & session paths** (`PHASES/PHASE-4.md`): server tree, per-dir
       new-session pins, Default Session Path + cwd fallback chain.
-- [ ] **Phase 5 — Transcript fidelity & composer features** (`PHASES/PHASE-5.md`): pi-web
+- [x] **Phase 5 — Transcript fidelity & composer features** (`PHASES/PHASE-5.md`): pi-web
       condense semantics, attachments, open-file mentions; closes the deferred phone rows.
-- [ ] **Phase 6 — Hardening & distribution**: iOS perf pass (virtualization if measured),
-      BRAT/release pipeline, Guides documentation (approval required), changelog wrap-up.
+- [~] **Phase 6 — Hardening & distribution** (2026-11-04/05): phone-validated via BRAT
+      releases (github.com/ejumper/pi-obsidian, LiveSync plugin-sync excluded by design —
+      phone = production, desktop = dev); keyboard saga resolved (screen-anchored composer);
+      debug tooling retired; headless harness (test/) shipped; changelog + docs wrapped.
+      Perf: no virtualization needed at current session sizes — revisit if long sessions
+      stutter on iOS.
 
 ## 5.0 Working Agreement
 

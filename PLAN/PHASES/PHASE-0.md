@@ -92,14 +92,14 @@ Walk the matrix in §4.0 on desktop and phone; results recorded here.
 | 1 | CORS `fetch` against pi-web site | desktop webview | session list populates | ✅ 2026-11-04 |
 | 2 | SSE streaming | desktop webview | live tokens appear while pi runs | ✅ 2026-11-04 |
 | 3 | Prompt round-trip | desktop webview | prompt → stream → `prompt_done` | ✅ 2026-11-04 |
-| 4 | `emulateMobile(true)` loop | desktop | UI usable in mobile shell; toggle back clean | [ ] (folded into Phase 1 checks) |
-| 5 | Hot Reload pickup | desktop | edit → reload with no manual step | [ ] (user enabled plugin; confirm on next edit) |
-| 6 | Plugin folder delivery | iPhone via LiveSync | build appears in `.obsidian/plugins/pi-obsidian/` on phone | deferred → Phase 1 exit |
-| 7 | Plugin runs on iOS | iPhone | spike view opens, list loads | deferred → Phase 1 exit |
-| 8 | CORS + SSE on iOS webview | iPhone | live stream renders | deferred → Phase 1 exit |
-| 9 | Phone reload path | iPhone | either mobile Hot Reload works, or off/on toggle is tolerable | deferred → Phase 1 exit |
-| 10 | Logstravaganza round-trip | phone → desktop | a `console.log` from the plugin lands in the vault note | deferred → Phase 1 exit |
-| 11 | Workspace tab enumeration probe | desktop + emulated | `app.workspace` leaves → file paths logged (mentions groundwork) | [ ] (command shipped: "pi: Debug: log open tabs") |
+| 4 | `emulateMobile(true)` loop | desktop | used throughout dev | ✅ |
+| 5 | Hot Reload pickup | desktop | reloads every build | ✅ |
+| 6 | Plugin folder delivery | iPhone | (superseded) delivered via **BRAT releases** instead of LiveSync by user decision — phone stays on release builds | ✅ 2026-11-04 |
+| 7 | Plugin runs on iOS | iPhone | runs daily via BRAT | ✅ 2026-11-04 |
+| 8 | CORS + SSE on iOS webview | iPhone | live streams render in daily use | ✅ 2026-11-04 |
+| 9 | Phone reload path | iPhone | BRAT release updates | ✅ 2026-11-04 |
+| 10 | Logstravaganza round-trip | phone → desktop | (dropped) in-view error panels + desktop devtools covered debugging needs | — dropped |
+| 11 | Workspace tab enumeration probe | desktop | shipped; became the @mentions feature (Phase 5) | ✅ |
 
 Fallbacks if the loop fails: #6/#9 → BRAT + GitHub releases (documented, slower); #8 → check
 `https://pi-desktop.halfab.net` in mobile Safari first (isolates webview vs network).
