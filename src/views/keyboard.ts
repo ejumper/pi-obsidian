@@ -71,11 +71,14 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     const cancel = Math.max(reserve, kb);
     // For the body-fixed composer: distance from the SCREEN bottom.
     const composerBottom = (kb > 0 ? kb : navbar) + 6;
-    root.style.setProperty(CANCEL_VAR, `${cancel}px`);
-    root.style.setProperty(GAP_VAR, `${composerBottom}px`);
-    root.style.setProperty(INSET_VAR, `${kb}px`);
-    root.style.setProperty(NAVBAR_VAR, `${navbar}px`);
-    root.style.setProperty(
+    // Published on :root — the fixed composer lives on document.body, outside
+    // the view tree, and must inherit these.
+    const target = document.documentElement.style;
+    target.setProperty(CANCEL_VAR, `${cancel}px`);
+    target.setProperty(GAP_VAR, `${composerBottom}px`);
+    target.setProperty(INSET_VAR, `${kb}px`);
+    target.setProperty(NAVBAR_VAR, `${navbar}px`);
+    target.setProperty(
       SAFE_BOTTOM_VAR,
       Platform.isMobile ? "max(env(safe-area-inset-bottom), 20px)" : "0px"
     );
@@ -135,10 +138,11 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     viewport?.removeEventListener("scroll", onViewportChange);
     root.removeEventListener("focusin", onFocusIn);
     if (retryTimer) clearTimeout(retryTimer);
-    root.style.removeProperty(INSET_VAR);
-    root.style.removeProperty(NAVBAR_VAR);
-    root.style.removeProperty(SAFE_BOTTOM_VAR);
-    root.style.removeProperty(CANCEL_VAR);
-    root.style.removeProperty(GAP_VAR);
+    const target = document.documentElement.style;
+    target.removeProperty(INSET_VAR);
+    target.removeProperty(NAVBAR_VAR);
+    target.removeProperty(SAFE_BOTTOM_VAR);
+    target.removeProperty(CANCEL_VAR);
+    target.removeProperty(GAP_VAR);
   };
 }

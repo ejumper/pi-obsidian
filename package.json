@@ -1,6 +1,6 @@
 {
   "name": "pi-obsidian",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Alternate GUI front-end for the pi agent harness, replacing the pi-web PWA.",
   "main": "main.js",
   "scripts": {
