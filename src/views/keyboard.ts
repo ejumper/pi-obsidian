@@ -15,7 +15,8 @@ const KEYBOARD_HEIGHT_VAR = "--keyboard-height";
 const INSET_VAR = "--pi-keyboard-inset";
 const NAVBAR_VAR = "--pi-navbar-clearance";
 const SAFE_BOTTOM_VAR = "--pi-safe-bottom";
-const RESERVE_VAR = "--pi-content-reserve";
+const CANCEL_VAR = "--pi-kb-cancel";
+const GAP_VAR = "--pi-kb-gap";
 
 /** Numeric px value of the root `--keyboard-height`; 0 when empty/unparseable. */
 function readKeyboardHeightPx(): number {
@@ -58,20 +59,35 @@ function undoKeyboardScroll(root: HTMLElement): void {
 export function attachKeyboardInset(root: HTMLElement): () => void {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const apply = (): void => {
-    // The app sizes the view to end at the keyboard AND may pad its content
-    // bottom further (the residual gap). Measure that inside reserve so CSS
-    // can cancel it exactly — self-correcting whatever the source.
+  // All bottom-edge math happens HERE; CSS just consumes --pi-kb-gap /
+  // --pi-kb-cancel. The app sizes the view to end at the keyboard but pads the
+  // content bottom asynchronously (the phantom gap) — cancel = max(measured
+  // padding, keyboard height) is predictive at keyboard-open and exact once
+  // the padding lands. A light chase loop re-measures continuously.
+  const applyVars = (): void => {
+    const kb = readKeyboardHeightPx();
+    const navbar = navbarClearancePx();
     const reserve = parseFloat(getComputedStyle(root).paddingBottom) || 0;
-    root.style.setProperty(RESERVE_VAR, `${reserve}px`);
-    root.style.setProperty(INSET_VAR, `${readKeyboardHeightPx()}px`);
-    root.style.setProperty(NAVBAR_VAR, `${navbarClearancePx()}px`);
+    const cancel = Math.max(reserve, kb);
+    const gap = (kb > 0 ? 0 : navbar) + 6;
+    root.style.setProperty(CANCEL_VAR, `${cancel}px`);
+    root.style.setProperty(GAP_VAR, `${gap}px`);
+    root.style.setProperty(INSET_VAR, `${kb}px`);
+    root.style.setProperty(NAVBAR_VAR, `${navbar}px`);
     root.style.setProperty(
       SAFE_BOTTOM_VAR,
       Platform.isMobile ? "max(env(safe-area-inset-bottom), 20px)" : "0px"
     );
+  };
+
+  const apply = (): void => {
+    applyVars();
     if (readKeyboardHeightPx() > 0) undoKeyboardScroll(root);
   };
+
+  const chaseTimer = setInterval(applyVars, 250);
+  const resizeObserver = new ResizeObserver(() => applyVars());
+  resizeObserver.observe(root);
 
   // The reveal scroll can land after the keyboard signal — chase it a few times.
   const chaseScroll = (): void => {
@@ -109,6 +125,8 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
   apply(); // baseline so the properties exist before the first signal
 
   return () => {
+    clearInterval(chaseTimer);
+    resizeObserver.disconnect();
     observer.disconnect();
     viewport?.removeEventListener("resize", onViewportChange);
     viewport?.removeEventListener("scroll", onViewportChange);
@@ -117,6 +135,7 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     root.style.removeProperty(INSET_VAR);
     root.style.removeProperty(NAVBAR_VAR);
     root.style.removeProperty(SAFE_BOTTOM_VAR);
-    root.style.removeProperty(RESERVE_VAR);
+    root.style.removeProperty(CANCEL_VAR);
+    root.style.removeProperty(GAP_VAR);
   };
 }

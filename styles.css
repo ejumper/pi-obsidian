@@ -28,9 +28,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  /* The view already ends at the keyboard; any content-bottom reserve the app
-     adds is cancelled here so the composer lands just above it. */
-  margin-bottom: calc(6px - var(--pi-content-reserve, 0px));
+  /* All values published by keyboard.ts: gap = desired clearance (navbar when
+     the keyboard is closed), cancel = the app's async content-bottom reserve. */
+  margin-bottom: calc(var(--pi-kb-gap, 6px) - var(--pi-kb-cancel, 0px));
 }
 
 .pi-chat-bar {
@@ -999,7 +999,7 @@
 
 /* diagnostic mode: no reserve cancellation (shows the app's raw reserve) */
 body.pi-no-keyboard-inset .pi-chat {
-  margin-bottom: 6px;
+  margin-bottom: var(--pi-kb-gap, 6px);
 }
 
 .pi-kb-debug {
