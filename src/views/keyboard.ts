@@ -69,9 +69,10 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     const navbar = navbarClearancePx();
     const reserve = parseFloat(getComputedStyle(root).paddingBottom) || 0;
     const cancel = Math.max(reserve, kb);
-    const gap = (kb > 0 ? 0 : navbar) + 6;
+    // For the body-fixed composer: distance from the SCREEN bottom.
+    const composerBottom = (kb > 0 ? kb : navbar) + 6;
     root.style.setProperty(CANCEL_VAR, `${cancel}px`);
-    root.style.setProperty(GAP_VAR, `${gap}px`);
+    root.style.setProperty(GAP_VAR, `${composerBottom}px`);
     root.style.setProperty(INSET_VAR, `${kb}px`);
     root.style.setProperty(NAVBAR_VAR, `${navbar}px`);
     root.style.setProperty(

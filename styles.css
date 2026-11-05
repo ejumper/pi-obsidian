@@ -28,9 +28,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  /* All values published by keyboard.ts: gap = desired clearance (navbar when
-     the keyboard is closed), cancel = the app's async content-bottom reserve. */
-  margin-bottom: calc(var(--pi-kb-gap, 6px) - var(--pi-kb-cancel, 0px));
+
 }
 
 .pi-chat-bar {
@@ -71,18 +69,24 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 10px calc(var(--pi-navbar-clearance, 0px) + 8px);
+  padding: 10px 10px calc(var(--pi-composer-h, 0px) + 8px);
 }
 
 .pi-chat-transcript .pi-msg {
   margin-bottom: 12px;
 }
 
-/* Composer pinned to the bottom; clears the soft keyboard when open and the
-   mobile floating navbar when closed (either one, never both + a gap). */
+/* Composer: BODY-ATTACHED and fixed to screen geometry (copilot's principle —
+   anchor to the viewport, never to container internals the app keeps moving).
+   left/width track the view rect; bottom tracks the keyboard/navbar. */
 .pi-chat-composer {
-  flex-shrink: 0;
+  position: fixed;
+  left: var(--pi-view-left, 0px);
+  width: var(--pi-view-width, 100vw);
+  bottom: var(--pi-kb-gap, 6px);
+  z-index: var(--layer-sidedock, 10);
   padding: 10px;
+  background: var(--background-primary);
   border-top: 1px solid var(--background-modifier-border);
 }
 
@@ -997,10 +1001,7 @@
 
 /* ---------- keyboard diagnostics ---------- */
 
-/* diagnostic mode: no reserve cancellation (shows the app's raw reserve) */
-body.pi-no-keyboard-inset .pi-chat {
-  margin-bottom: var(--pi-kb-gap, 6px);
-}
+
 
 .pi-kb-debug {
   position: fixed;

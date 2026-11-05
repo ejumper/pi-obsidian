@@ -51,6 +51,7 @@ export class ChatView extends ItemView {
   private detachKeyboard: (() => void) | null = null;
   private telemetryEl: HTMLElement | null = null;
   private composerEl!: HTMLElement;
+  private composerObserver: ResizeObserver | null = null;
   private telemetryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -94,19 +95,35 @@ export class ChatView extends ItemView {
       this.telemetryEl = this.contentEl.createDiv({ cls: "pi-kb-debug" });
       this.telemetryEl.style.display = "none";
       this.telemetryTimer = setInterval(() => {
-        if (!this.telemetryEl) return;
+        // Fixed composer tracks the view rect and hides with the view.
+        const rect = this.contentEl.getBoundingClientRect();
+        const shown = this.containerEl.isShown();
+        this.composerEl.style.display = shown ? "" : "none";
+        if (shown) {
+          this.composerEl.style.setProperty("--pi-view-left", `${Math.round(rect.left)}px`);
+          this.composerEl.style.setProperty("--pi-view-width", `${Math.round(rect.width)}px`);
+        }
         document.body.classList.toggle(
           "pi-no-keyboard-inset",
           this.plugin.settings.keyboardInsetMode === "none"
         );
-        const show = this.plugin.settings.keyboardDebug;
-        this.telemetryEl.style.display = show ? "" : "none";
-        if (show) {
-          this.telemetryEl.setText(
-            formatTelemetry(readTelemetry(this.contentEl, this.composerEl))
-          );
+        if (this.telemetryEl) {
+          const show = this.plugin.settings.keyboardDebug;
+          this.telemetryEl.style.display = show ? "" : "none";
+          if (show) {
+            this.telemetryEl.setText(
+              formatTelemetry(readTelemetry(this.contentEl, this.composerEl))
+            );
+          }
         }
-      }, 500);
+      }, 250);
+      this.composerObserver = new ResizeObserver(() => {
+        this.contentEl.style.setProperty(
+          "--pi-composer-h",
+          `${this.composerEl.offsetHeight}px`
+        );
+      });
+      this.composerObserver.observe(this.composerEl);
       this.transcript = new TranscriptRenderer(this.transcriptEl, {
         app: this.app,
         sourcePath: "",
@@ -149,6 +166,9 @@ export class ChatView extends ItemView {
     if (this.telemetryTimer) clearInterval(this.telemetryTimer);
     this.telemetryTimer = null;
     this.telemetryEl = null;
+    this.composerObserver?.disconnect();
+    this.composerObserver = null;
+    this.composerEl?.remove();
     this.transcript?.unmount();
     this.store?.destroy();
   }
@@ -172,8 +192,8 @@ export class ChatView extends ItemView {
     // Transcript (middle).
     this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
 
-    // Composer block (bottom).
-    const composer = root.createDiv({ cls: "pi-chat-composer" });
+    // Composer block: body-attached + fixed (screen geometry — see styles.css).
+    const composer = document.body.createDiv({ cls: "pi-chat-composer" });
     this.composerEl = composer;
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-chat-input",
