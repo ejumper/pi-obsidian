@@ -992,3 +992,26 @@
 .pi-transcript-react .compaction-file-list li + li {
   margin-top: 3px;
 }
+
+/* ---------- keyboard diagnostics ---------- */
+
+body.pi-no-keyboard-inset .pi-chat-composer {
+  margin-bottom: calc(var(--pi-navbar-clearance, 0px) + 6px);
+}
+
+.pi-kb-debug {
+  position: fixed;
+  top: 60px;
+  right: 8px;
+  z-index: 100;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre;
+  pointer-events: none;
+}

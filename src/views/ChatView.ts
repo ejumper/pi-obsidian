@@ -10,6 +10,7 @@ import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
 import { attachKeyboardInset } from "./keyboard";
+import { formatTelemetry, readTelemetry } from "./telemetry";
 import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
 
@@ -48,6 +49,8 @@ export class ChatView extends ItemView {
   private includeFiles = false;
   private attachments!: AttachmentStage;
   private detachKeyboard: (() => void) | null = null;
+  private telemetryEl: HTMLElement | null = null;
+  private telemetryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -86,6 +89,20 @@ export class ChatView extends ItemView {
         onChange: () => this.updateComposerState(),
       });
       this.buildDom();
+      document.body.classList.toggle(
+        "pi-no-keyboard-inset",
+        this.plugin.settings.keyboardInsetMode === "none"
+      );
+      if (this.plugin.settings.keyboardDebug) {
+        this.telemetryEl = this.contentEl.createDiv({ cls: "pi-kb-debug" });
+        this.telemetryTimer = setInterval(() => {
+          if (this.telemetryEl) {
+            this.telemetryEl.setText(
+              formatTelemetry(readTelemetry(this.contentEl, this.inputEl))
+            );
+          }
+        }, 500);
+      }
       this.transcript = new TranscriptRenderer(this.transcriptEl, {
         app: this.app,
         sourcePath: "",
@@ -125,6 +142,9 @@ export class ChatView extends ItemView {
     this.unsubscribe = null;
     this.detachKeyboard?.();
     this.detachKeyboard = null;
+    if (this.telemetryTimer) clearInterval(this.telemetryTimer);
+    this.telemetryTimer = null;
+    this.telemetryEl = null;
     this.transcript?.unmount();
     this.store?.destroy();
   }
