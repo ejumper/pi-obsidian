@@ -65,6 +65,32 @@ function undoKeyboardScroll(root: HTMLElement): void {
   }
 }
 
+/** env(safe-area-inset-bottom) via a hidden probe — custom props don't resolve
+ *  env()/max() when read back from computed style. */
+let safeProbe: HTMLElement | null = null;
+function safeInsetBottomPx(): number {
+  if (!safeProbe) {
+    safeProbe = document.createElement("div");
+    safeProbe.style.cssText =
+      "position:fixed;left:0;bottom:0;width:0;height:0;visibility:hidden;pointer-events:none;padding-bottom:env(safe-area-inset-bottom, 0px)";
+    document.body.appendChild(safeProbe);
+  }
+  const value = parseFloat(getComputedStyle(safeProbe).paddingBottom);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/** The exact bottom offset (px above the screen bottom) the composer needs:
+ *  keyboard open → keyboard + 6; closed → navbar height + the bar's bottom
+ *  offset (safe area) + 6. Computed in JS and applied as a DIRECT style —
+ *  custom-property inheritance has failed us twice. */
+export function composerBottomPx(): number {
+  const kb = readKeyboardHeightPx();
+  if (kb > 0) return kb + 6;
+  const navbar = navbarClearancePx();
+  if (navbar <= 0) return 6;
+  return navbar + Math.max(safeInsetBottomPx(), 12) + 6;
+}
+
 /** Tracks the mobile soft-keyboard inset and publishes it as CSS custom
  *  properties on `root`. Returns a cleanup function. */
 export function attachKeyboardInset(root: HTMLElement): () => void {
@@ -81,7 +107,7 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     const reserve = parseFloat(getComputedStyle(root).paddingBottom) || 0;
     const cancel = Math.max(reserve, kb);
     // For the body-fixed composer: distance from the SCREEN bottom.
-    const composerBottom = (kb > 0 ? kb : navbar) + 6;
+    const composerBottom = composerBottomPx();
     // Published on :root — the fixed composer lives on document.body, outside
     // the view tree, and must inherit these.
     const target = document.documentElement.style;

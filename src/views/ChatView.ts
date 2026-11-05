@@ -9,7 +9,7 @@ import { TranscriptRenderer } from "./react/Transcript";
 import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
-import { attachKeyboardInset } from "./keyboard";
+import { attachKeyboardInset, composerBottomPx } from "./keyboard";
 import { formatTelemetry, readTelemetry } from "./telemetry";
 import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
@@ -100,8 +100,11 @@ export class ChatView extends ItemView {
         const shown = this.containerEl.isShown();
         this.composerEl.style.display = shown ? "" : "none";
         if (shown) {
-          this.composerEl.style.setProperty("--pi-view-left", `${Math.round(rect.left)}px`);
-          this.composerEl.style.setProperty("--pi-view-width", `${Math.round(rect.width)}px`);
+          // Direct styles — custom-property inheritance to the body-attached
+          // composer has failed twice; pixels, computed here, cannot.
+          this.composerEl.style.left = `${Math.round(rect.left)}px`;
+          this.composerEl.style.width = `${Math.round(rect.width)}px`;
+          this.composerEl.style.bottom = `${composerBottomPx()}px`;
         }
         document.body.classList.toggle(
           "pi-no-keyboard-inset",
