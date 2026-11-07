@@ -7,6 +7,7 @@ import { resolveServerPath } from "../state/paths";
 import type { SessionInfo } from "../api/types";
 import { ServerTree } from "./panel/ServerTree";
 import { SessionList } from "./panel/SessionList";
+import { PillSelect } from "./panel/PillSelect";
 import type PiPlugin from "../main";
 
 export const VIEW_TYPE_PI_PANEL = "pi-panel";
@@ -22,6 +23,8 @@ export class PanelView extends ItemView {
   private runningSnapshot: string[] = [];
   private mainEl!: HTMLElement;
   private mode: PanelMode = "recent";
+  /** Include/exclude open-file @mentions pill (settings-backed). */
+  private mentionsPill: PillSelect<boolean> | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -99,7 +102,7 @@ export class PanelView extends ItemView {
     });
     this.mainEl.appendChild(this.list.el);
 
-    // Controls row: new session, compact.
+    // Controls row: new session, compact, then the mentions pill.
     const controls = root.createDiv({ cls: "pi-panel-controls" });
     const newBtn = this.panelButton(controls, "plus", "New session");
     newBtn.addEventListener("click", () => {
@@ -115,6 +118,34 @@ export class PanelView extends ItemView {
       }
       void store.compact();
     });
+    const include = this.plugin.settings.includeMentions;
+    const mentionsPill = new PillSelect<boolean>({
+      icon: include ? "file" : "file-x",
+      label: include ? "Include" : "Exclude",
+      value: include,
+      options: [
+        { value: true, label: "Include", icon: "file" },
+        { value: false, label: "Exclude", icon: "file-x" },
+      ],
+      onChange: (next) => {
+        this.plugin.settings.includeMentions = next;
+        void this.plugin.saveSettings();
+        this.syncMentionsPill();
+      },
+    });
+    this.mentionsPill = mentionsPill;
+    controls.appendChild(mentionsPill.el);
+  }
+
+  /** Re-sync the mentions pill (icon + label) to plugin settings — load,
+   *  after a change, and from refresh() for external changes. */
+  private syncMentionsPill(): void {
+    const pill = this.mentionsPill;
+    if (!pill) return;
+    const include = this.plugin.settings.includeMentions;
+    const iconEl = pill.el.querySelector<HTMLElement>(".pi-pill-icon");
+    if (iconEl) setIcon(iconEl, include ? "file" : "file-x");
+    pill.setValue(include);
   }
 
   /** Close the right sidebar/drawer after an action that leaves the panel
@@ -189,6 +220,7 @@ export class PanelView extends ItemView {
   // ---------- data ----------
 
   async refresh(): Promise<void> {
+    this.syncMentionsPill();
     this.list.setLoading();
     try {
       const res = await this.plugin.client.listSessions();

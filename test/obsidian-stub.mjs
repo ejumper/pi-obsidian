@@ -64,6 +64,9 @@ export class FakeElement {
   focus() {}
   scrollIntoView() {}
   getBoundingClientRect() { return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }; }
+  querySelector() { return new FakeElement("span"); }
+  querySelectorAll() { return []; }
+  closest() { return null; }
 }
 
 // ---------- globals ----------

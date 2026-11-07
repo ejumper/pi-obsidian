@@ -1,7 +1,7 @@
 // The chat view: session bar on top, transcript in the middle, composer block
 // pinned to the bottom (auto-grow editor + button row). Per PLAN/PHASES/PHASE-2.md.
 
-import { ItemView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage, AttachedImageInput } from "../api/types";
 import { computeTranscriptUnits } from "./message-display";
@@ -9,7 +9,7 @@ import { TranscriptRenderer } from "./react/Transcript";
 import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
-import { attachKeyboardInset, composerBottomPx } from "./keyboard";
+import { attachKeyboardInset, composerBottomPx, readKeyboardHeightPx } from "./keyboard";
 import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
 
@@ -35,7 +35,6 @@ export class ChatView extends ItemView {
   private modelChipEl!: HTMLButtonElement;
   private modelChipNameEl!: HTMLElement;
   private attachBtnEl!: HTMLButtonElement;
-  private includeBtnEl!: HTMLButtonElement;
   private sendBtnEl!: HTMLButtonElement;
   private queueBtnEl!: HTMLButtonElement;
   private stopBtnEl!: HTMLButtonElement;
@@ -44,8 +43,10 @@ export class ChatView extends ItemView {
   private transcriptEl!: HTMLElement;
 
   private pendingCwd: string | null = null;
-  /** Include open-file @mentions in outgoing prompts (settings-backed). */
-  private includeFiles = false;
+  /** Mobile composer tab button's count span (null on desktop — no button). */
+  private tabCountEl: HTMLElement | null = null;
+  /** First openTabOverview() call logs the scan so it can be corrected. */
+  private tabOverviewLogged = false;
   private attachments!: AttachmentStage;
   private detachKeyboard: (() => void) | null = null;
   private composerEl!: HTMLElement;
@@ -89,17 +90,23 @@ export class ChatView extends ItemView {
   async onOpen(): Promise<void> {
     try {
       this.store = this.createStore();
-      this.includeFiles = this.plugin.settings.includeMentions;
       this.attachments = new AttachmentStage({
         upload: (file) => this.plugin.client.uploadAttachment(file),
         onChange: () => this.updateComposerState(),
       });
       this.buildDom();
+      // Tab count follows tab open/close anywhere in the workspace.
+      this.registerEvent(
+        this.app.workspace.on("layout-change", () => this.updateTabCount())
+      );
       // The fixed composer tracks the view rect and hides with the view.
       this.geometryTimer = setInterval(() => {
         const rect = this.contentEl.getBoundingClientRect();
         const shown = this.containerEl.isShown();
         this.composerEl.style.display = shown ? "" : "none";
+        // CSS pads the composer's bottom only in the mobile closed state
+        // (nav-covering takeover) — keep the class in sync every tick.
+        this.composerEl.toggleClass("pi-kb-open", readKeyboardHeightPx() > 0);
         if (shown) {
           this.composerEl.style.left = `${Math.round(rect.left)}px`;
           this.composerEl.style.width = `${Math.round(rect.width)}px`;
@@ -218,16 +225,11 @@ export class ChatView extends ItemView {
     this.sendGroupEl = row.createDiv({ cls: "pi-chat-row-right" });
     this.runGroupEl = row.createDiv({ cls: "pi-chat-row-right" });
 
-    // Left: attach, include/hide, model chip.
+    // Left: tab count (mobile only), attach, model chip. The include/exclude
+    // mentions toggle lives in the panel's controls row now (T40).
+    if (Platform.isMobile) this.buildTabButton(left);
     this.attachBtnEl = this.iconButton(left, "paperclip", "Attach files");
     this.attachBtnEl.addEventListener("click", () => this.attachments.pick());
-    this.includeBtnEl = this.iconButton(left, "file", "Include open files in prompt");
-    this.includeBtnEl.addEventListener("click", () => {
-      this.includeFiles = !this.includeFiles;
-      this.plugin.settings.includeMentions = this.includeFiles;
-      void this.plugin.saveSettings();
-      this.updateComposerState();
-    });
 
     this.modelChipEl = left.createEl("button", { cls: "pi-model-chip" });
     setIcon(this.modelChipEl.createSpan({ cls: "pi-model-icon" }), "cpu");
@@ -256,6 +258,104 @@ export class ChatView extends ItemView {
     return btn;
   }
 
+  /** Mobile composer's far-left button: the current root-leaf (tab) count.
+   *  Tap → tab overview; long-press → new/close-tab menu. */
+  private buildTabButton(parent: HTMLElement): void {
+    const btn = parent.createEl("button", {
+      cls: "pi-icon-btn pi-tab-btn",
+      attr: { "aria-label": "Tabs", title: "Tabs" },
+    });
+    this.tabCountEl = btn.createSpan({ cls: "pi-tab-count", text: "0" });
+    this.updateTabCount();
+
+    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+    let longPressed = false;
+    const cancelPress = (): void => {
+      if (pressTimer) clearTimeout(pressTimer);
+      pressTimer = null;
+    };
+
+    btn.addEventListener("pointerdown", (ev) => {
+      longPressed = false; // only suppresses the click right after a long-press
+      cancelPress();
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        longPressed = true;
+        const menu = new Menu();
+        menu.addItem((item) =>
+          item.setTitle("Open new tab").onClick(() => {
+            this.app.workspace.getLeaf("tab");
+          })
+        );
+        menu.addItem((item) =>
+          item.setTitle("Close current tab").onClick(() => {
+            this.app.workspace.activeLeaf?.detach();
+          })
+        );
+        menu.showAtMouseEvent(ev);
+      }, 500);
+    });
+    btn.addEventListener("pointerup", cancelPress);
+    btn.addEventListener("pointerleave", cancelPress);
+    btn.addEventListener("pointercancel", cancelPress);
+    btn.addEventListener("pointermove", cancelPress);
+    btn.addEventListener("click", (ev) => {
+      if (longPressed) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+      this.openTabOverview();
+    });
+  }
+
+  /** Refresh the tab button's count from the workspace's root leaves. */
+  private updateTabCount(): void {
+    if (!this.tabCountEl) return;
+    let n = 0;
+    this.app.workspace.iterateRootLeaves(() => {
+      n++;
+    });
+    this.tabCountEl.setText(String(n));
+  }
+
+  /** Tap → open the tab overview. The command id depends on which plugin
+   *  provides it (unknown at build time), so rank the registry: "tab overview"
+   *  / "show-tab-overview" first, then id-"tab" + name-"overview", then any
+   *  id containing "tab-overview". First call logs the match + candidates. */
+  private openTabOverview(): void {
+    type CommandInfo = { id: string; name: string };
+    let commands: CommandInfo[] = [];
+    try {
+      commands =
+        ((this.app as any).commands?.listCommands?.() as CommandInfo[] | undefined) ?? [];
+    } catch {
+      commands = [];
+    }
+    const has = (s: string, needle: string): boolean => s.toLowerCase().includes(needle);
+    const best =
+      commands.find(
+        (c) =>
+          has(c.id, "tab overview") || has(c.name, "tab overview") ||
+          has(c.id, "show-tab-overview") || has(c.name, "show-tab-overview")
+      ) ??
+      commands.find((c) => has(c.id, "tab") && has(c.name, "overview")) ??
+      commands.find((c) => has(c.id, "tab-overview"));
+
+    if (!this.tabOverviewLogged) {
+      this.tabOverviewLogged = true;
+      const tabish = commands.filter((c) => has(c.id, "tab") || has(c.name, "tab"));
+      console.log("pi: tab overview match:", best?.id ?? "(none)");
+      console.log("pi: tab-ish commands:", tabish);
+    }
+
+    if (!best) {
+      new Notice("pi: tab overview command not found");
+      return;
+    }
+    (this.app as any).commands.executeCommandById(best.id);
+  }
+
   /** Auto-grow editor: 1 row → grows with content → CSS caps it, then scrolls. */
   private growEditor(): void {
     const el = this.inputEl;
@@ -273,21 +373,12 @@ export class ChatView extends ItemView {
     this.queueBtnEl.classList.toggle("has-text", hasText);
     this.sendGroupEl.style.display = running ? "none" : "";
     this.runGroupEl.style.display = running ? "" : "none";
-
-    // Include/hide state + badge of files that would be mentioned.
-    setIcon(this.includeBtnEl, this.includeFiles ? "file" : "file-x");
-    const count = this.includeFiles ? collectOpenFiles(this.app).length : 0;
-    if (count > 0) this.includeBtnEl.setAttribute("data-badge", String(count));
-    else this.includeBtnEl.removeAttribute("data-badge");
-    this.includeBtnEl.setAttribute(
-      "title",
-      this.includeFiles ? `Include ${count} open file(s) in prompt` : "Open-file mentions excluded"
-    );
   }
 
-  /** Prefix open-file @mentions (pi-web format) when the toggle is on. */
+  /** Prefix open-file @mentions (pi-web format) when the panel toggle is on
+   *  (settings-backed — the panel's controls row owns the write side). */
   private async prependMentions(text: string, cwd: string): Promise<string> {
-    if (!this.includeFiles) return text;
+    if (!this.plugin.settings.includeMentions) return text;
     try {
       const prefix = await resolveServerPath(this.plugin.client, this.plugin.settings.pathPrefix);
       const files = mapServerPaths(collectOpenFiles(this.app), prefix);
@@ -483,6 +574,7 @@ export class ChatView extends ItemView {
       s.currentModel?.modelId ?? this.plugin.settings.defaultModel?.modelId ?? "model"
     );
     this.updateComposerState();
+    this.updateTabCount();
 
     const stick = this.isNearBottom();
 

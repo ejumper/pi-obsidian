@@ -94,6 +94,14 @@
   left: var(--pi-view-left, 0px);
   width: var(--pi-view-width, 100vw);
   bottom: 6px; /* overridden by direct style from composerBottomPx() */
+}
+
+/* Phase 10 bottom-bar takeover: keyboard-closed on mobile the composer covers
+   the app's bottom nav — 1.5u of background padding keeps the button row at
+   thumb height (~1.5u above the screen edge) while the background bleeds to
+   the edge behind it. Keyboard open (and desktop) stay padding-free. */
+body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
+  padding-bottom: calc(var(--input-height, 40px) * 1.5);
   z-index: var(--layer-sidedock, 10);
   padding: 10px;
   background: var(--background-primary);
@@ -223,6 +231,19 @@
   display: block;
   flex-shrink: 0;
   pointer-events: none;
+}
+
+/* Tab button (mobile composer, src/views/ChatView.ts): square like the round
+   icon buttons, current tab count centered in tabular figures. */
+.pi-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--input-height);
+  height: var(--input-height);
+  font: var(--font-ui-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
 }
 
 /* Send: grey with nothing to send, theme accent once there is text. */

@@ -15,7 +15,7 @@ const KEYBOARD_HEIGHT_VAR = "--keyboard-height";
 const INSET_VAR = "--pi-keyboard-inset";
 
 /** Numeric px value of the root `--keyboard-height`; 0 when empty/unparseable. */
-function readKeyboardHeightPx(): number {
+export function readKeyboardHeightPx(): number {
   const raw = getComputedStyle(document.documentElement)
     .getPropertyValue(KEYBOARD_HEIGHT_VAR)
     .trim();
@@ -82,6 +82,11 @@ function safeInsetBottomPx(): number {
 export function composerBottomPx(): number {
   const kb = readKeyboardHeightPx();
   if (kb > 0) return kb + 6;
+  // Mobile, keyboard closed: the composer intentionally covers Obsidian's
+  // bottom nav (Phase 10 takeover) — flush to the screen edge, with the
+  // composer's background padding (1.5u, CSS) holding the button row up at
+  // thumb height. Desktop keeps the clear-the-edge formula below.
+  if (Platform.isMobile) return 0;
   const navbar = navbarClearancePx();
   if (navbar <= 0) return 6;
   return navbar + Math.max(safeInsetBottomPx(), 12) + 6;
