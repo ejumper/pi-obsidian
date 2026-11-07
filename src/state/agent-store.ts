@@ -679,8 +679,14 @@ export class AgentStore {
     this.sseConnected = false;
   }
 
+  /** Connect the event stream. Called at every prompt send and RE-subscribes
+   *  unconditionally (pi-web's ensureEventsConnected → connectEvents semantics):
+   *  a stale connection can hold undelivered terminal frames from the previous
+   *  run — observed flushing 30s late, right after the next run's send, where
+   *  they passed the agentRunning guard and killed the new run's rendering
+   *  (probe: PLAN/PHASES/PHASE-7.md). A fresh subscription delivers only
+   *  `connected` + live frames. */
   private async ensureConnected(sid: string): Promise<void> {
-    if (this.sse && this.sseConnected && this.state.sessionId === sid) return;
     this.connectStream(sid, this.state.live ? "live" : "agent");
     const deadline = Date.now() + EVENT_STREAM_CONNECT_TIMEOUT_MS;
     while (!this.sseConnected && Date.now() < deadline) {

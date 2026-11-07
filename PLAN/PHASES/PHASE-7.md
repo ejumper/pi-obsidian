@@ -28,9 +28,27 @@ does — no session reopen needed. Final release for all of phases 7–11 is **0
     pi-web performs and we don't.
 - Write the confirmed cause into this file before T29.
 
+**CONFIRMED CAUSE (protocol probe 2026-11-06, `t28-probe.mjs` against pi.halfab.net):**
+run #1's terminal frames (`agent_end → agent_settled → prompt_done`) sit undelivered on the
+SSE connection (~30s in the capture) and flush exactly when the follow-up's `sendPrompt` has
+already set `agentRunning: true` for run #2. The stale `agent_end` passes the `agentRunning`
+guard → `finishRun()` (wipes `streamingMessage`, flips `agentRunning` false) → every run #2
+frame after that (streaming, the reply's `message_end`, its real `agent_end`) is dropped by the
+late-event guards, and `refreshFromDisk` never runs → nothing renders until reopen. First
+messages are unaffected (no predecessor's stale frames). pi-web is immune because its
+`ensureEventsConnected` → `connectEvents` **closes and re-subscribes the EventSource on every
+send** — stale buffers die with the old connection (a fresh subscribe delivers only `connected`
++ live frames — verified in the probe) — plus `finishPromptWithoutStream` loads the session
+*before* marking the run finished and carries a runId staleness check.
+Repro artifact: `/tmp/pi/notes/pi-obsidian-0.3.2/t28-probe.mjs` + `t28-probe.log`.
+
 ### T29 — Fix stream lifecycle to pi-web parity
-- Implement the fix per T28's finding; the bar is "identical observable behavior to pi-web's
-  hook on the same session".
+- **Fix (implemented):** fresh subscription at every prompt send — `ensureConnected` now
+  reconnects unconditionally (pi-web `connectEvents` semantics) instead of trusting a possibly
+  stale `sseConnected` flag; the run-start boundary drops the previous run's undelivered
+  terminal frames. Terminal-handler ordering (load-then-finish) was evaluated and left as-is:
+  once stale frames can't arrive, both orderings are benign, and ours matches the
+  late-event-guard comments.
 - Verify: two follow-ups in one session stream live; kill/restart the server mid-session and
   confirm the reconnect path still works (existing `reconnectTimer` behavior must not regress);
   headless harness still passes (`npm run check`).
