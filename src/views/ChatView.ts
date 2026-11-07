@@ -57,6 +57,7 @@ export class ChatView extends ItemView {
   // scroll position wasn't "near bottom". Prefixed — see the note above.
   private prevSessionIdForScroll: string | null = null;
   private prevLoadingForScroll = false;
+  private pendingScrollToBottom = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -88,6 +89,11 @@ export class ChatView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    // Tool view, not a file view: without this Obsidian's tab/file machinery
+    // treats our leaf as "the leaf to navigate in" — the + button and file
+    // opens land IN the pi tab (its content shows other tabs' views). Same
+    // pattern as graph/kanban views.
+    this.navigation = false;
     try {
       this.store = this.createStore();
       this.attachments = new AttachmentStage({
@@ -585,6 +591,7 @@ export class ChatView extends ItemView {
     const loadSettled = this.prevLoadingForScroll && !s.loading;
     this.prevSessionIdForScroll = s.sessionId;
     this.prevLoadingForScroll = s.loading;
+    if (sessionChanged || loadSettled) this.pendingScrollToBottom = true;
 
     // pi-web's MessageView components render the grouped units (see
     // react/Transcript.tsx + views/message-display.ts).
@@ -597,6 +604,12 @@ export class ChatView extends ItemView {
       onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
       onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },
       onEditContent: (content: string) => this.insertIntoComposer(content),
+      onRendered: () => {
+        // Fires after React commits — the only moment scrollHeight is real.
+        if (!this.pendingScrollToBottom) return;
+        this.pendingScrollToBottom = false;
+        this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+      },
     });
 
     if (stick || sessionChanged || loadSettled) {

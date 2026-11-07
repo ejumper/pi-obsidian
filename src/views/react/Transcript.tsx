@@ -3,6 +3,7 @@
 // ../message-display.ts (rule-for-rule port of pi-web's ChatWindow algorithm).
 
 import { useCallback, useState, type MouseEvent } from "react";
+import { useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { App, Component } from "obsidian";
 import type { AgentMessage } from "../../api/types";
@@ -20,6 +21,9 @@ export interface TranscriptData {
   onFork?: (entryId: string) => Promise<string | null>;
   onNavigate?: (entryId: string) => void;
   onEditContent?: (content: string) => void;
+  /** Called after every committed render — ChatView scrolls on session swaps
+   *  only once the DOM actually carries the new content. */
+  onRendered?: () => void;
 }
 
 /** pi-web's rule: only the LAST assistant message of a turn shows the
@@ -68,8 +72,12 @@ function computePrevAssistantEntryIds(units: TranscriptUnit[]): Map<TranscriptUn
   return prev;
 }
 
-function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent }: TranscriptData) {
+function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered }: TranscriptData) {
   const showTs = computeShowTimestamps(units);
+  // No dep array: fires after every commit. A plain rAF scroll races React's
+  // async commit on big session swaps (the transcript still held the old DOM
+  // when the frame ran — sessions opened at the top).
+  useLayoutEffect(() => { onRendered?.(); });
   const prevAssistant = computePrevAssistantEntryIds(units);
   const [forkingKey, setForkingKey] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<string | null>(null);

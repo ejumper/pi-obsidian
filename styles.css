@@ -94,6 +94,10 @@
   left: var(--pi-view-left, 0px);
   width: var(--pi-view-width, 100vw);
   bottom: 6px; /* overridden by direct style from composerBottomPx() */
+  z-index: var(--layer-sidedock, 10);
+  padding: 10px;
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
 }
 
 /* Phase 10 bottom-bar takeover: keyboard-closed on mobile the composer covers
@@ -102,10 +106,6 @@
    the edge behind it. Keyboard open (and desktop) stay padding-free. */
 body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   padding-bottom: calc(var(--input-height, 40px) * 1.5);
-  z-index: var(--layer-sidedock, 10);
-  padding: 10px;
-  background: var(--background-primary);
-  border-top: 1px solid var(--background-modifier-border);
 }
 
 /* Working indicator: a thin segment sliding back and forth ON the composer's

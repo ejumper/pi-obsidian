@@ -47,6 +47,8 @@ export class PanelView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    // Tool view — never a file-navigation target (see ChatView.onOpen).
+    this.navigation = false;
     try {
       this.buildDom();
       await this.refresh();
