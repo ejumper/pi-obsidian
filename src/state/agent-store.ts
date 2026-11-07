@@ -108,6 +108,8 @@ export interface AgentStoreHooks {
   /** extension `set_editor_text` — insert into the composer. */
   onInsertText?: (text: string) => void;
   onAgentEnd?: () => void;
+  /** Plugin-level default thinking level — used when a session carries no stored override. */
+  defaultThinkingLevel?: ThinkingLevelOption;
 }
 
 // ---------- message helpers (ported from pi-web lib/normalize + hook) ----------
@@ -210,6 +212,7 @@ export class AgentStore {
   ) {
     document.addEventListener("visibilitychange", this.onVisible);
     window.addEventListener("online", this.onOnline);
+    this.state.thinkingLevel = this.defaultThinkingLevel;
   }
 
   state: StoreState = {
@@ -242,6 +245,11 @@ export class AgentStore {
     extensionWidgets: [],
     externalQueued: false,
   };
+
+  /** Thinking level for fresh state: the plugin default unless a session overrides it. */
+  private get defaultThinkingLevel(): ThinkingLevelOption {
+    return this.hooks.defaultThinkingLevel ?? "auto";
+  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -293,6 +301,7 @@ export class AgentStore {
       queuedMessages: { steering: [], followUp: [] },
       isCompacting: false,
       retryInfo: null,
+      thinkingLevel: this.defaultThinkingLevel,
     });
 
     try {
@@ -367,7 +376,7 @@ export class AgentStore {
       compactResult: null,
       compactError: null,
       retryInfo: null,
-      thinkingLevel: "auto",
+      thinkingLevel: this.defaultThinkingLevel,
       contextUsage: null,
       currentModel: null,
       tree: [],
@@ -749,6 +758,7 @@ export class AgentStore {
         if (!this.state.agentRunning) break;
         this.finishRun();
         void this.refreshFromDisk();
+        void this.refreshAgentState();
         break;
       }
 
@@ -756,6 +766,7 @@ export class AgentStore {
         if (!this.state.agentRunning) break;
         this.finishRun();
         void this.refreshFromDisk();
+        void this.refreshAgentState();
         break;
 
       case "prompt_error":
@@ -988,6 +999,23 @@ export class AgentStore {
       this.update(patch);
     } catch {
       // keep current view; next reconcile retries
+    }
+  }
+
+  /** Post-run agent-state refetch (pi-web's agent_end fetch parity — its hook
+   *  re-queries /api/agent/{id} after every run and merges state.*). Cold-opened
+   *  sessions have NO runtime state ({running:false} — no state key at all), so
+   *  contextUsage etc. only become available after the first completed run;
+   *  without this refetch the context-size display never populated. */
+  private async refreshAgentState(): Promise<void> {
+    const sid = this.state.sessionId;
+    if (!sid) return;
+    try {
+      const data = await this.client.getState(sid);
+      if (this.state.sessionId !== sid) return;
+      this.applyRuntimeState(data);
+    } catch {
+      // non-fatal — next run/reconcile/reopen retries
     }
   }
 

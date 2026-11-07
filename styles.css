@@ -100,6 +100,43 @@
   border-top: 1px solid var(--background-modifier-border);
 }
 
+/* Working indicator: a thin segment sliding back and forth ON the composer's
+   top border while the agent runs (ChatView toggles .pi-working). Absolutely
+   positioned so it never shifts layout. */
+.pi-chat-composer.pi-working::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--interactive-accent),
+    transparent
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: pi-bounce 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes pi-bounce {
+  0% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-chat-composer.pi-working::before {
+    animation: none;
+    background-position: 50% 0;
+  }
+}
+
 .pi-chat-input {
   display: block;
   box-sizing: border-box;

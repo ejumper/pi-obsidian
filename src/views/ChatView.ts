@@ -51,6 +51,11 @@ export class ChatView extends ItemView {
   private composerEl!: HTMLElement;
   private barSizeEl!: HTMLElement;
   private geometryTimer: ReturnType<typeof setInterval> | null = null;
+  // Scroll-to-bottom bookkeeping: opening/switching a session (or a load
+  // settling) must land at the end of the transcript even when the previous
+  // scroll position wasn't "near bottom". Prefixed — see the note above.
+  private prevSessionIdForScroll: string | null = null;
+  private prevLoadingForScroll = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -65,6 +70,7 @@ export class ChatView extends ItemView {
 
   private createStore(): AgentStore {
     return new AgentStore(this.plugin.client, {
+      defaultThinkingLevel: this.plugin.settings.defaultThinkingLevel,
       onNotice: (message, type) =>
         new Notice(`pi: ${message}`, type === "error" ? 8000 : 5000),
       onInsertText: (text) => {
@@ -462,11 +468,23 @@ export class ChatView extends ItemView {
       s.agentRunning ? `running${tools}` : ""
     );
     this.renderContextSize(s.contextUsage);
+    // Working indicator: bouncing line on the composer's top border (styles.css).
+    this.composerEl.toggleClass("pi-working", s.agentRunning);
 
-    this.modelChipNameEl.setText(s.currentModel?.modelId ?? "model");
+    this.modelChipNameEl.setText(
+      s.currentModel?.modelId ?? this.plugin.settings.defaultModel?.modelId ?? "model"
+    );
     this.updateComposerState();
 
     const stick = this.isNearBottom();
+
+    // Session open/switch: scroll to the end once messages land (loading
+    // true→false), and when the session id itself changes. Streaming
+    // auto-scroll (the `stick` branch above) is untouched.
+    const sessionChanged = this.prevSessionIdForScroll !== s.sessionId;
+    const loadSettled = this.prevLoadingForScroll && !s.loading;
+    this.prevSessionIdForScroll = s.sessionId;
+    this.prevLoadingForScroll = s.loading;
 
     // pi-web's MessageView components render the grouped units (see
     // react/Transcript.tsx + views/message-display.ts).
@@ -478,7 +496,7 @@ export class ChatView extends ItemView {
       sessionId: s.sessionId ?? undefined,
     });
 
-    if (stick) {
+    if (stick || sessionChanged || loadSettled) {
       requestAnimationFrame(() => {
         this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
       });

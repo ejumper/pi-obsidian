@@ -34,6 +34,7 @@ export class FakeElement {
   empty() { this.children = []; }
   addClass(...cs) { cs.forEach((c) => this.classes.add(c)); }
   removeClass(...cs) { cs.forEach((c) => this.classes.delete(c)); }
+  toggleClass(c, on) { if (on) this.classes.add(c); else this.classes.delete(c); }
   setAttr(k, v) { this.attrs[k] = v; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   removeAttribute(k) { delete this.attrs[k]; }

@@ -3,19 +3,13 @@
 // mirror Obsidian's own sidebar conventions via CSS `order` (see styles.css).
 
 import { ItemView, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
-import type { ThinkingLevelOption } from "../state/agent-store";
 import { resolveServerPath } from "../state/paths";
 import type { SessionInfo } from "../api/types";
-import { PillSelect } from "./panel/PillSelect";
 import { ServerTree } from "./panel/ServerTree";
 import { SessionList } from "./panel/SessionList";
 import type PiPlugin from "../main";
 
 export const VIEW_TYPE_PI_PANEL = "pi-panel";
-
-const THINKING_LEVELS: ThinkingLevelOption[] = [
-  "auto", "off", "minimal", "low", "medium", "high", "xhigh", "max",
-];
 
 type PanelMode = "recent" | "folders";
 
@@ -23,7 +17,6 @@ export class PanelView extends ItemView {
   private list!: SessionList;
   private toggleRecentEl!: HTMLButtonElement;
   private toggleFoldersEl!: HTMLButtonElement;
-  private thinkingPill!: PillSelect<ThinkingLevelOption>;
   private tree: ServerTree | null = null;
   private sessionsSnapshot: SessionInfo[] = [];
   private runningSnapshot: string[] = [];
@@ -106,7 +99,7 @@ export class PanelView extends ItemView {
     });
     this.mainEl.appendChild(this.list.el);
 
-    // Controls row: new session, compact, then the thinking pill.
+    // Controls row: new session, compact.
     const controls = root.createDiv({ cls: "pi-panel-controls" });
     const newBtn = this.panelButton(controls, "plus", "New session");
     newBtn.addEventListener("click", () => {
@@ -122,21 +115,6 @@ export class PanelView extends ItemView {
       }
       void store.compact();
     });
-    this.thinkingPill = new PillSelect<ThinkingLevelOption>({
-      icon: "brain",
-      label: "auto",
-      value: "auto",
-      options: THINKING_LEVELS.map((level) => ({ value: level, label: level })),
-      onChange: (level) => {
-        const store = this.plugin.getActiveStore();
-        if (!store) {
-          new Notice("pi: open a session first");
-          return;
-        }
-        void store.setThinkingLevel(level);
-      },
-    });
-    controls.appendChild(this.thinkingPill.el);
   }
 
   /** Close the right sidebar/drawer after an action that leaves the panel
@@ -221,8 +199,6 @@ export class PanelView extends ItemView {
       this.runningSnapshot = res.runningSessionIds;
       this.list.setSessions(sessions, res.runningSessionIds);
       this.tree?.refresh();
-      const store = this.plugin.getActiveStore();
-      if (store) this.thinkingPill.setValue(store.state.thinkingLevel);
     } catch (e) {
       this.list.setSessions([], []);
       new Notice(`pi: ${String(e)}`);

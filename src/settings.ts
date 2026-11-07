@@ -1,5 +1,17 @@
 import { App, PluginSettingTab, Setting, type DropdownComponent } from "obsidian";
 import type PiPlugin from "./main";
+import type { ThinkingLevelOption } from "./state/agent-store";
+
+const THINKING_LEVELS: { value: ThinkingLevelOption; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "off", label: "Off" },
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "XHigh" },
+  { value: "max", label: "Max" },
+];
 
 export interface PiSettings {
   /** pi-web site base URL (desktop service or pi-web container). */
@@ -12,6 +24,8 @@ export interface PiSettings {
   defaultSessionPath: string;
   /** Default model for new sessions (null = pi's own default). */
   defaultModel: { provider: string; modelId: string } | null;
+  /** Default thinking level for new sessions ("auto" = pi's own default). */
+  defaultThinkingLevel: ThinkingLevelOption;
   /** Include open-file @mentions in outgoing prompts. */
   includeMentions: boolean;
 }
@@ -22,6 +36,7 @@ export const DEFAULT_SETTINGS: PiSettings = {
   lastCwd: "/home/ejumps",
   defaultSessionPath: "",
   defaultModel: null,
+  defaultThinkingLevel: "auto",
   includeMentions: false,
 };
 
@@ -108,6 +123,18 @@ export class PiSettingTab extends PluginSettingTab {
       modelDropdown?.setDisabled(true);
       modelSetting.setDesc("Model list unavailable — is the pi-web site running?");
     });
+
+    new Setting(containerEl)
+      .setName("Default thinking level")
+      .setDesc("Thinking level for new sessions (Auto = leave pi's current setting untouched)")
+      .addDropdown((dropdown) => {
+        for (const level of THINKING_LEVELS) dropdown.addOption(level.value, level.label);
+        dropdown.setValue(this.plugin.settings.defaultThinkingLevel);
+        dropdown.onChange(async (value) => {
+          this.plugin.settings.defaultThinkingLevel = value as ThinkingLevelOption;
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Provider auth & API keys")
