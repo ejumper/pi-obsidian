@@ -1055,3 +1055,10 @@
   margin-top: 3px;
 }
 
+
+/* pi-obsidian: tap-to-reveal wrapper around user messages (mobile) —
+   display:contents keeps the wrapper layout-neutral so it never shifts
+   the transcript's flow while still receiving click/tap bubbling. */
+.pi-msg-tap {
+  display: contents;
+}

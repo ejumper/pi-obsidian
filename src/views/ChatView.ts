@@ -434,6 +434,14 @@ export class ChatView extends ItemView {
   /** Session-bar context size — pi-web's AppShell format translated:
    *  "<current>/<max> | <pct>%", k/M abbreviation per pi-web's fmt, and
    *  pi-web's warning thresholds (>70 warn, >90 crit) on theme colors. */
+  /** pi-web's composer insertIfEmpty — used by message "edit from here". */
+  insertIntoComposer(text: string): void {
+    if (this.inputEl.value.trim()) return;
+    this.inputEl.value = text;
+    this.growEditor();
+    this.inputEl.focus();
+  }
+
   private renderContextSize(
     cu: { percent: number | null; contextWindow: number; tokens: number | null } | null
   ): void {
@@ -494,6 +502,9 @@ export class ChatView extends ItemView {
       modelNames: this.modelNames,
       cwd: s.cwd,
       sessionId: s.sessionId ?? undefined,
+      onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
+      onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },
+      onEditContent: (content: string) => this.insertIntoComposer(content),
     });
 
     if (stick || sessionChanged || loadSettled) {
