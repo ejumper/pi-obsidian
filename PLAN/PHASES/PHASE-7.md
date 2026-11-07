@@ -40,7 +40,7 @@ messages are unaffected (no predecessor's stale frames). pi-web is immune becaus
 send** — stale buffers die with the old connection (a fresh subscribe delivers only `connected`
 + live frames — verified in the probe) — plus `finishPromptWithoutStream` loads the session
 *before* marking the run finished and carries a runId staleness check.
-Repro artifact: `/tmp/pi/notes/pi-obsidian-0.3.2/t28-probe.mjs` + `t28-probe.log`.
+Repro artifact: `test/protocol-probe.mjs` (kept in-repo — `node test/protocol-probe.mjs <baseUrl>` records the raw SSE frame timeline of two prompts; the pattern reproduced the bug in one run).
 
 ### T29 — Fix stream lifecycle to pi-web parity
 - **Fix (implemented):** fresh subscription at every prompt send — `ensureConnected` now
