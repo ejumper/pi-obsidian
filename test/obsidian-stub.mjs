@@ -131,6 +131,7 @@ export class Component {
   addChild() {}
   register() {}
   registerEvent() {}
+  registerDomEvent() {}
 }
 export class View extends Component {
   constructor(leaf) {

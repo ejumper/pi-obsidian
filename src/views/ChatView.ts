@@ -58,6 +58,7 @@ export class ChatView extends ItemView {
   private prevSessionIdForScroll: string | null = null;
   private prevLoadingForScroll = false;
   private pendingScrollToBottom = false;
+  private prevShownForFocus = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -109,6 +110,11 @@ export class ChatView extends ItemView {
       this.geometryTimer = setInterval(() => {
         const rect = this.contentEl.getBoundingClientRect();
         const shown = this.containerEl.isShown();
+        // Visibility transition = the user switched to this pi tab → it is the
+        // panel's target now. Only on the edge (false→true) so two pi panes
+        // open side by side on desktop never flip-flop.
+        if (shown && !this.prevShownForFocus) this.plugin.setActiveChatView(this);
+        this.prevShownForFocus = shown;
         this.composerEl.style.display = shown ? "" : "none";
         // CSS pads the composer's bottom only in the mobile closed state
         // (nav-covering takeover) — keep the class in sync every tick.
@@ -133,6 +139,14 @@ export class ChatView extends ItemView {
       void this.plugin.client.getModels().then((models) => {
         this.modelNames = models.models ?? {};
       }).catch(() => {});
+      // Panel targeting, interaction signal: whatever pi view the user last
+      // touched wins. The composer lives on document.body (outside
+      // containerEl) so it needs its own listeners.
+      const reportFocus = () => this.plugin.setActiveChatView(this);
+      this.registerDomEvent(this.containerEl, "pointerdown", reportFocus);
+      this.registerDomEvent(this.containerEl, "focusin", reportFocus);
+      this.registerDomEvent(this.composerEl, "pointerdown", reportFocus);
+      this.registerDomEvent(this.composerEl, "focusin", reportFocus);
       this.detachKeyboard = attachKeyboardInset(this.contentEl);
       this.unsubscribe = this.store.subscribe(() => {
         try {

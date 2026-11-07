@@ -221,6 +221,15 @@ export default class PiPlugin extends Plugin {
     return view instanceof ChatView ? view : null;
   }
 
+  /** Record the pi view the user is working in (panel actions target it).
+   *  Called by ChatView on visibility transitions and pointer/focus events —
+   *  mobile tab switches don't reliably deliver active-leaf-change, which
+   *  left the panel aimed at the first tab (sessions opened invisibly into
+   *  hidden tabs). */
+  setActiveChatView(view: ChatView): void {
+    this.activeChatView = view;
+  }
+
   /** The store of the most recently active chat view, if any. */
   getActiveStore(): AgentStore | null {
     return (this.attachedActiveChatView() ?? this.firstChatView())?.getStore() ?? null;
