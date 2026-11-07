@@ -103,25 +103,14 @@ export default class PiPlugin extends Plugin {
 
     // Ribbon button opens the secondary-actions menu (PLAN/OVERVIEW §3).
     this.addRibbonIcon("message-square", "pi", (ev) => {
+      // Navigation only — session actions live in the right sidebar panel
+      // (New session / Compact there) and in the composer (Stop, model menu).
       const menu = new Menu();
       menu.addItem((item) =>
-        item.setTitle("Open pi").setIcon("message-square").onClick(() => void this.activateChatView())
+        item.setTitle("Open pi").setIcon("message-square").onClick(() => void this.openPiHere())
       );
       menu.addItem((item) =>
-        item.setTitle("Open pi panel").setIcon("panel-right").onClick(() => void this.activatePanelView())
-      );
-      menu.addItem((item) =>
-        item.setTitle("New session").setIcon("plus").onClick(() => void this.prepareNewSession())
-      );
-      menu.addSeparator();
-      menu.addItem((item) =>
-        item.setTitle("Cycle thinking level").setIcon("brain").onClick(() => this.withChatView((v) => v.cycleThinking()))
-      );
-      menu.addItem((item) =>
-        item.setTitle("Compact session").setIcon("minimize-2").onClick(() => this.withChatView((v) => v.compactNow()))
-      );
-      menu.addItem((item) =>
-        item.setTitle("Abort run").setIcon("square").onClick(() => this.withChatView((v) => v.abortRun()))
+        item.setTitle("Open pi in new tab").setIcon("plus").onClick(() => void this.activateChatViewInNewTab())
       );
       menu.showAtMouseEvent(ev);
     });
@@ -137,6 +126,23 @@ export default class PiPlugin extends Plugin {
   }
 
   onunload(): void {}
+
+  /** Open pi IN the current tab (ribbon "Open pi"): replaces the active
+   *  tab's view with pi unless it is already pi. Two guards: a sidebar leaf
+   *  is never the target (the ribbon is invoked from sidebar drawers on
+   *  mobile — that case opens a tab instead), and main-area membership is
+   *  checked via iterateRootLeaves (the documented main-area traversal). */
+  async openPiHere(): Promise<void> {
+    const leaf = this.app.workspace.activeLeaf;
+    if (leaf?.view instanceof ChatView) {
+      this.app.workspace.setActiveLeaf(leaf);
+      return;
+    }
+    let inMain = false;
+    if (leaf) this.app.workspace.iterateRootLeaves((l) => { if (l === leaf) inMain = true; });
+    const target = inMain && leaf ? leaf : this.app.workspace.getLeaf("tab");
+    await target.setViewState({ type: VIEW_TYPE_PI_CHAT, active: true });
+  }
 
   /** Open the chat view in the main area (T42): focus an existing pi tab,
    *  create one only when none exists. */
