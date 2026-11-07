@@ -1,0 +1,5 @@
+- follow up messages require me to reopen the session to see the model working
+- no "working" notification so I can tell if the model is still going. use separator line to show "working" animation
+- /tree option to go back to the previous message.
+- open sessions at the bottom, not the top.
+- allow multiple sessions open in different tabs

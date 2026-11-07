@@ -80,6 +80,18 @@ speaking the pi-web site's existing HTTP+SSE API over Tailscale.
       new-session pins, Default Session Path + cwd fallback chain.
 - [x] **Phase 5 — Transcript fidelity & composer features** (`PHASES/PHASE-5.md`): pi-web
       condense semantics, attachments, open-file mentions; closes the deferred phone rows.
+- [ ] **Phase 7 (A) — Follow-up output bug** *(PHASE-7.md)*: follow-up sends show output live
+      (SSE lifecycle parity with pi-web's hook; investigate-first).
+- [ ] **Phase 8 (B) — Quick wins** *(PHASE-8.md)*: working indicator (bouncing line on the
+      composer separator), sessions open at bottom, context-size display bug (real — investigate),
+      model chip shows default, default thinking setting, panel thinking pill removed.
+- [ ] **Phase 9 (C) — Message actions** *(PHASE-9.md)*: copy / edit-from-here / fork wired from
+      the already-ported pi-web machinery; hover on desktop, tap-to-reveal on mobile.
+- [ ] **Phase 10 (D) — Bottom-bar takeover** *(PHASE-10.md)*: composer covers the mobile nav
+      when closed (controls lower, background to the screen edge), tab button joins the button
+      row (tap=overview, long-press=menu), mentions toggle moves to the panel (both layouts).
+- [ ] **Phase 11 (E) — Multiple pi tabs** *(PHASE-11.md)*: N sessions in N tabs/splits with an
+      active-view concept; new "Open pi in new tab" command. **Ship everything as 0.3.2.**
 - [~] **Phase 6 — Hardening & distribution** (2026-11-04/05): phone-validated via BRAT
       releases (github.com/ejumper/pi-obsidian, LiveSync plugin-sync excluded by design —
       phone = production, desktop = dev); keyboard saga resolved (screen-anchored composer);
