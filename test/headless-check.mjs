@@ -55,5 +55,37 @@ for (const type of ["pi-chat", "pi-panel"]) {
   }
 }
 
+// T43 — two pi-chat views open at once: both paint, and closing one leaves
+// the other working (per-view stores, per-view composers).
+const twins = [
+  plugin.__views["pi-chat"]({ app: appStub, updateHeader() {} }),
+  plugin.__views["pi-chat"]({ app: appStub, updateHeader() {} }),
+];
+try {
+  await twins[0].open();
+  await twins[1].open();
+  ok(twins[0].getStore() !== twins[1].getStore(), "twin chat views have independent stores");
+  for (const [i, twin] of twins.entries()) {
+    const kids = twin.contentEl.children;
+    const painted = kids.some?.((k) => k.classes?.has("pi-error-panel")) ?? false;
+    ok(!painted, `twin chat view ${i + 1} opens without painting an error panel`);
+    ok((kids.length ?? 0) >= 2, `twin chat view ${i + 1} builds its DOM (${kids.length} top-level children)`);
+  }
+
+  await twins[0].close();
+
+  // The survivor still responds: a store update re-renders through its own
+  // subscription — a throw would swap contentEl for the error panel.
+  const survivor = twins[1];
+  survivor.prepareNewSession("/tmp");
+  const kids = survivor.contentEl.children;
+  const painted = kids.some?.((k) => k.classes?.has("pi-error-panel")) ?? false;
+  ok(!painted, "surviving chat view still responds after its sibling closes (no error panel)");
+  ok((kids.length ?? 0) >= 2, `surviving chat view keeps its DOM (${kids.length} top-level children)`);
+  await survivor.close();
+} catch (e) {
+  ok(false, `two chat views coexist — ${e}`);
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

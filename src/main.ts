@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Plugin } from "obsidian";
+import { MarkdownView, Menu, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
 import { PiClient } from "./api/client";
 import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
 import type { AgentStore } from "./state/agent-store";
@@ -20,7 +20,8 @@ export const BUILD_ID: string = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID
 export default class PiPlugin extends Plugin {
   settings: PiSettings = DEFAULT_SETTINGS;
   client: PiClient = new PiClient(DEFAULT_SETTINGS.baseUrl);
-  private lastChatView: ChatView | null = null;
+  /** The most recently active chat view (T41) — panel/ribbon/commands target it. */
+  private activeChatView: ChatView | null = null;
 
   async onload(): Promise<void> {
     try {
@@ -28,14 +29,22 @@ export default class PiPlugin extends Plugin {
       this.client = new PiClient(this.settings.baseUrl);
       setApiBase(this.settings.baseUrl);
 
-    this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => new ChatView(leaf, this));
+    this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => this.createChatView(leaf));
     this.registerView(VIEW_TYPE_PI_PANEL, (leaf) => new PanelView(leaf, this));
     this.addSettingTab(new PiSettingTab(this.app, this));
 
-    // Track the most recently active chat view — the panel drives its store.
+    // Track the most recently active chat view — the panel and the commands
+    // act through it instead of a singleton (T41).
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
-        if (leaf?.view instanceof ChatView) this.lastChatView = leaf.view;
+        const view = leaf?.view;
+        if (
+          view instanceof ChatView &&
+          view.getViewType() === VIEW_TYPE_PI_CHAT &&
+          "store" in view
+        ) {
+          this.activeChatView = view;
+        }
       })
     );
 
@@ -43,6 +52,11 @@ export default class PiPlugin extends Plugin {
       id: "open-pi",
       name: "Open pi",
       callback: () => void this.activateChatView(),
+    });
+    this.addCommand({
+      id: "open-pi-new-tab",
+      name: "Open pi in new tab",
+      callback: () => void this.activateChatViewInNewTab(),
     });
     this.addCommand({
       id: "open-pi-panel",
@@ -124,16 +138,37 @@ export default class PiPlugin extends Plugin {
 
   onunload(): void {}
 
-  /** Open the chat view in the main area. */
+  /** Open the chat view in the main area (T42): focus an existing pi tab,
+   *  create one only when none exists. */
   async activateChatView(): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0];
     if (existing) {
-      this.app.workspace.revealLeaf(existing);
+      this.app.workspace.setActiveLeaf(existing);
       return;
     }
     const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE_PI_CHAT, active: true });
     this.app.workspace.revealLeaf(leaf);
+  }
+
+  /** Always open a FRESH pi tab (T42) — never reuses an existing leaf. */
+  async activateChatViewInNewTab(): Promise<void> {
+    const leaf = this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: VIEW_TYPE_PI_CHAT, active: true });
+  }
+
+  /** Create a chat view wired for active-view bookkeeping (T41): its onClose
+   *  drops the plugin's reference when it points at this view, so a closed
+   *  tab never pins the view — and its store — in memory. The hook lives in
+   *  the factory so ChatView's onClose stays per-instance lifecycle cleanup. */
+  private createChatView(leaf: WorkspaceLeaf): ChatView {
+    const view = new ChatView(leaf, this);
+    const closeOriginal = view.onClose.bind(view);
+    view.onClose = async () => {
+      if (this.activeChatView === view) this.activeChatView = null;
+      await closeOriginal();
+    };
+    return view;
   }
 
   /** Open the pi panel in the right sidebar. */
@@ -169,17 +204,38 @@ export default class PiPlugin extends Plugin {
     await this.withChatView((view) => view.openSessionById(id));
   }
 
+  /** The active chat view while its leaf is still in the workspace — a
+   *  closed tab must never be targeted (T41). */
+  private attachedActiveChatView(): ChatView | null {
+    const active = this.activeChatView;
+    if (!active) return null;
+    const attached = this.app.workspace
+      .getLeavesOfType(VIEW_TYPE_PI_CHAT)
+      .some((leaf) => leaf.view === active);
+    return attached ? active : null;
+  }
+
+  /** The first chat leaf's view — the singleton-era fallback (T41). */
+  private firstChatView(): ChatView | null {
+    const view = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0]?.view;
+    return view instanceof ChatView ? view : null;
+  }
+
   /** The store of the most recently active chat view, if any. */
   getActiveStore(): AgentStore | null {
-    return this.lastChatView?.getStore() ?? null;
+    return (this.attachedActiveChatView() ?? this.firstChatView())?.getStore() ?? null;
   }
 
   /** Run an action against the chat view, opening it first if needed. */
   async withChatView(action: (view: ChatView) => void): Promise<void> {
+    const attached = this.attachedActiveChatView();
+    if (attached) {
+      action(attached);
+      return;
+    }
     await this.activateChatView();
-    const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)[0];
-    const view = leaf?.view;
-    if (view instanceof ChatView) action(view);
+    const view = this.firstChatView();
+    if (view) action(view);
   }
 
 
