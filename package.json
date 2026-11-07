@@ -7,7 +7,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
     "typecheck": "tsc --noEmit",
-    "check": "npm run build && node test/headless-check.mjs",
+    "check": "npm run build && node test/headless-check.mjs && node test/context-usage-check.mjs",
     "check:headless": "node test/headless-check.mjs"
   },
   "keywords": [
