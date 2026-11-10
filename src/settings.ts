@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, type DropdownComponent } from "obsidian";
+import { App, PluginSettingTab, Setting, type DropdownComponent, TextComponent } from "obsidian";
 import type PiPlugin from "./main";
 import type { ThinkingLevelOption } from "./state/agent-store";
 
@@ -76,6 +76,9 @@ export class PiSettingTab extends PluginSettingTab {
         const setting = new Setting(containerEl).setName(
           index === 0 ? "Default URL" : instance.name.trim() || `URL ${index + 1}`
         );
+        // One card per server: the field rows below live inside this same
+        // setting element so the entry reads as one group.
+        setting.settingEl.style.flexWrap = "wrap";
         setting.addText((text) =>
           text
             .setPlaceholder("Name")
@@ -96,23 +99,29 @@ export class PiSettingTab extends PluginSettingTab {
         );
         // Per-machine paths (0.4.2): vault prefix + default session path live
         // with the server entry. Empty = fall back to the global values.
-        new Setting(containerEl).addText((text) =>
-          text
-            .setPlaceholder(this.plugin.settings.pathPrefix || "Vault path prefix")
-            .setValue(instance.pathPrefix ?? "")
-            .onChange(async (value) => {
-              instance.pathPrefix = value.trim();
-              await this.plugin.saveSettings();
-            })
+        const addFieldRow = (
+          placeholder: string,
+          value: string,
+          onCh: (v: string) => Promise<void>
+        ): void => {
+          const row = setting.settingEl.createDiv({ cls: "pi-server-field" });
+          new TextComponent(row).setPlaceholder(placeholder).setValue(value).onChange(onCh);
+        };
+        addFieldRow(
+          this.plugin.settings.pathPrefix || "Vault path prefix",
+          instance.pathPrefix ?? "",
+          async (value) => {
+            instance.pathPrefix = value.trim();
+            await this.plugin.saveSettings();
+          }
         );
-        new Setting(containerEl).addText((text) =>
-          text
-            .setPlaceholder("Default session path (empty = cwd chain)")
-            .setValue(instance.defaultSessionPath ?? "")
-            .onChange(async (value) => {
-              instance.defaultSessionPath = value.trim();
-              await this.plugin.saveSettings();
-            })
+        addFieldRow(
+          "Default session path (empty = cwd chain)",
+          instance.defaultSessionPath ?? "",
+          async (value) => {
+            instance.defaultSessionPath = value.trim();
+            await this.plugin.saveSettings();
+          }
         );
         // Entry #0 is the default — it can be edited but never removed.
         if (index > 0) {

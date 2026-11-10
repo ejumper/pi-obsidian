@@ -1102,3 +1102,15 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 .pi-msg-tap {
   display: contents;
 }
+
+/* Settings: per-server field rows stack full-width inside the server's card
+   (0.4.3 — one background per server entry). */
+.pi-server-field {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.pi-server-field input {
+  width: 100%;
+}
