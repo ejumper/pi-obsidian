@@ -4,6 +4,7 @@
 
 import { ItemView, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import { resolveServerPath } from "../state/paths";
+import { openSse } from "../api/sse";
 import type { SessionInfo } from "../api/types";
 import { ServerTree } from "./panel/ServerTree";
 import { SessionList } from "./panel/SessionList";
@@ -21,6 +22,8 @@ export class PanelView extends ItemView {
   private tree: ServerTree | null = null;
   private sessionsSnapshot: SessionInfo[] = [];
   private runningSnapshot: string[] = [];
+  private runningStream: { close(): void } | null = null;
+  private runningStreamInstance: string | null = null;
   private mainEl!: HTMLElement;
   private mode: PanelMode = "recent";
   /** Include/exclude open-file @mentions pill (settings-backed). */
@@ -64,7 +67,9 @@ export class PanelView extends ItemView {
     }
   }
 
-  async onClose(): Promise<void> {}
+  async onClose(): Promise<void> {
+    this.stopRunningStream();
+  }
 
   // ---------- DOM ----------
 
@@ -305,9 +310,44 @@ export class PanelView extends ItemView {
       this.runningSnapshot = res.runningSessionIds;
       this.list.setSessions(sessions, res.runningSessionIds);
       this.tree?.refresh();
+      // The fetch's running set is only a fallback — the live feed owns it
+      // once connected (pi-web's model).
+      this.startRunningStream();
     } catch (e) {
       this.list.setSessions([], []);
       new Notice(`pi: ${String(e)}`);
     }
+  }
+
+  /** Live run-state feed (pi-web's GET /api/agent/running/events): the server
+   *  pushes the running id set whenever any session starts/stops — across all
+   *  of a machine's clients, which is the point (0.4.1). Re-points when the
+   *  focused tab's machine changes; a dropped stream is re-established by the
+   *  next refresh rather than looping here. */
+  private startRunningStream(): void {
+    const instanceId = this.focusedInstanceId();
+    if (this.runningStream && this.runningStreamInstance === instanceId) return;
+    this.runningStream?.close();
+    this.runningStreamInstance = instanceId;
+    const base = this.plugin.getClient(instanceId).baseUrl.replace(/\/+$/, "");
+    this.runningStream = openSse(`${base}/api/agent/running/events`, {
+      onFrame: (_name, data) => {
+        const ev = data as { type?: string; runningSessionIds?: string[] };
+        if (ev?.type !== "running" || !Array.isArray(ev.runningSessionIds)) return;
+        this.runningSnapshot = ev.runningSessionIds;
+        this.list.setSessions(this.sessionsSnapshot, this.runningSnapshot);
+        this.tree?.refresh();
+      },
+      onError: () => {},
+      onClose: () => {
+        this.runningStream = null;
+      },
+    });
+  }
+
+  private stopRunningStream(): void {
+    this.runningStream?.close();
+    this.runningStream = null;
+    this.runningStreamInstance = null;
   }
 }

@@ -310,7 +310,9 @@ export class ServerTree {
       text: (session.name || session.firstMessage || "(empty)").slice(0, TITLE_MAX_CHARS),
     });
     if (runningIds.has(session.id)) {
-      title.createSpan({ cls: "pi-session-running", text: " ●" });
+      const spin = title.createSpan({ cls: "pi-session-running" });
+        setIcon(spin, "loader-circle");
+        row.addClass("is-running");
     }
     row.createDiv({
       cls: "pi-session-meta",

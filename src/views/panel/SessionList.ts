@@ -3,6 +3,7 @@
 // recent first — this component never sorts), the running ids, and the open
 // callback, and places `el` in its own layout.
 
+import { setIcon } from "obsidian";
 import type { SessionInfo } from "../../api/types";
 
 const TITLE_MAX_CHARS = 70;
@@ -54,7 +55,9 @@ export class SessionList {
         text: (session.name || session.firstMessage || "(empty)").slice(0, TITLE_MAX_CHARS),
       });
       if (running.has(session.id)) {
-        title.createSpan({ cls: "pi-session-running", text: " ●" });
+        const spin = title.createSpan({ cls: "pi-session-running" });
+        setIcon(spin, "loader-circle");
+        row.addClass("is-running");
       }
       row.createDiv({
         cls: "pi-session-meta",

@@ -237,18 +237,12 @@ export class PillSelect<T> {
       vpTop + vpHeight - safeAreaInsetBottomPx() - keyboardOcclusionPx();
     const topMax = Math.max(topLimit, bottomLimit - height);
 
-    let top: number;
-    if (
-      rect.bottom + PILL_GAP - height >= topLimit &&
-      rect.bottom + PILL_GAP <= bottomLimit
-    ) {
-      top = rect.bottom + PILL_GAP - height; // preferred: cover the pill, grow up
-    } else if (rect.bottom + PILL_GAP + height <= bottomLimit) {
-      top = rect.bottom + PILL_GAP; // no room above: open below instead
-    } else {
-      top = bottomLimit - height; // neither fits: pin above the safe bottom
-    }
-    top = Math.min(Math.max(top, topLimit), topMax);
+    // Open DOWNWARD from the pill's top edge: the first option overlays the
+    // pill and the rest cascade down. The old "cover the pill, grow up"
+    // pattern clipped against the top of the screen for pills near the top
+    // (the machine pill sits at the panel's top). The overlay scrolls
+    // (max-height in CSS) if the cascade runs past the safe bottom.
+    let top = Math.min(Math.max(rect.top, topLimit), topMax);
 
     overlay.style.left = `${Math.round(left)}px`;
     overlay.style.top = `${Math.round(top)}px`;

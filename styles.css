@@ -414,7 +414,26 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 }
 
 .pi-session-running {
-  color: var(--color-green);
+  color: var(--text-accent);
+  display: inline-flex;
+  align-items: center;
+}
+
+.pi-session-running svg {
+  animation: pi-spin 1.2s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@keyframes pi-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-session-running svg { animation: none; }
+}
+
+.pi-session-row.is-running .pi-session-title {
+  color: var(--text-accent);
 }
 
 .pi-session-meta {
