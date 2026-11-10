@@ -18,7 +18,10 @@ export interface PiInstance {
   id: string;
   name: string;
   baseUrl: string;
-}
+
+  /** Per-machine overrides (0.4.2) — empty/absent falls back to the global settings. */
+  pathPrefix?: string;
+  defaultSessionPath?: string;}
 
 export interface PiSettings {
   /** Named pi-web instances — the first entry is the default. */
@@ -91,6 +94,26 @@ export class PiSettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
             })
         );
+        // Per-machine paths (0.4.2): vault prefix + default session path live
+        // with the server entry. Empty = fall back to the global values.
+        new Setting(containerEl).addText((text) =>
+          text
+            .setPlaceholder(this.plugin.settings.pathPrefix || "Vault path prefix")
+            .setValue(instance.pathPrefix ?? "")
+            .onChange(async (value) => {
+              instance.pathPrefix = value.trim();
+              await this.plugin.saveSettings();
+            })
+        );
+        new Setting(containerEl).addText((text) =>
+          text
+            .setPlaceholder("Default session path (empty = cwd chain)")
+            .setValue(instance.defaultSessionPath ?? "")
+            .onChange(async (value) => {
+              instance.defaultSessionPath = value.trim();
+              await this.plugin.saveSettings();
+            })
+        );
         // Entry #0 is the default — it can be edited but never removed.
         if (index > 0) {
           setting.addExtraButton((button) =>
@@ -117,6 +140,8 @@ export class PiSettingTab extends PluginSettingTab {
               id: `instance-${n}-${Date.now()}`,
               name: `URL ${n}`,
               baseUrl: "",
+              pathPrefix: "",
+              defaultSessionPath: "",
             });
             await this.plugin.saveSettings();
             this.display();
@@ -125,31 +150,8 @@ export class PiSettingTab extends PluginSettingTab {
     };
     renderServers();
 
-    new Setting(containerEl)
-      .setName("Vault path prefix")
-      .setDesc("Server-side path that corresponds to the vault root (used for open-file mentions)")
-      .addText((text) =>
-        text
-          .setPlaceholder("~/HalfaCloud/Jumperpedia")
-          .setValue(this.plugin.settings.pathPrefix)
-          .onChange(async (value) => {
-            this.plugin.settings.pathPrefix = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Default session path")
-      .setDesc("Home-page analog for new sessions. Empty = current session's cwd, then last used, then the vault path prefix")
-      .addText((text) =>
-        text
-          .setPlaceholder("(cwd chain)")
-          .setValue(this.plugin.settings.defaultSessionPath)
-          .onChange(async (value) => {
-            this.plugin.settings.defaultSessionPath = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
+    // Vault path prefix + default session path moved into the server entries
+    // (0.4.2) — they are per-machine; the global fields remain as fallbacks.
 
     new Setting(containerEl).setName("Models").setHeading();
 

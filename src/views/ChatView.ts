@@ -433,7 +433,10 @@ export class ChatView extends ItemView {
   private async prependMentions(text: string, cwd: string): Promise<string> {
     if (!this.plugin.settings.includeMentions) return text;
     try {
-      const prefix = await resolveServerPath(this.plugin.client, this.plugin.settings.pathPrefix);
+      const prefix = await resolveServerPath(
+        this.plugin.getClient(this.instanceId),
+        this.plugin.getInstancePaths(this.instanceId).pathPrefix
+      );
       const files = mapServerPaths(collectOpenFiles(this.app), prefix);
       const lines = buildMentionPrefix(files, cwd);
       if (lines.length === 0) return text;
@@ -473,7 +476,7 @@ export class ChatView extends ItemView {
       let cwd = this.pendingCwd;
       if (!cwd) {
         try {
-          cwd = await this.plugin.resolveNewSessionCwd();
+          cwd = await this.plugin.resolveNewSessionCwd(this.instanceId);
         } catch {
           // chain resolution failed — fall back to the explicit-cwd modal
         }

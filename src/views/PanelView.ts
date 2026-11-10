@@ -24,6 +24,8 @@ export class PanelView extends ItemView {
   private runningSnapshot: string[] = [];
   private runningStream: { close(): void } | null = null;
   private runningStreamInstance: string | null = null;
+  private unsubActive: (() => void) | null = null;
+  private lastActiveKey = "";
   private mainEl!: HTMLElement;
   private mode: PanelMode = "recent";
   /** Include/exclude open-file @mentions pill (settings-backed). */
@@ -68,6 +70,8 @@ export class PanelView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.unsubActive?.();
+    this.unsubActive = null;
     this.stopRunningStream();
   }
 
@@ -266,7 +270,7 @@ export class PanelView extends ItemView {
       // picked up by the next refresh() → tree.refresh().
       const root = await resolveServerPath(
         this.plugin.getClient(this.focusedInstanceId()),
-        this.plugin.settings.pathPrefix
+        this.plugin.getInstancePaths(this.focusedInstanceId()).pathPrefix
       );
       this.tree = new ServerTree({
         rootPath: root,
@@ -307,9 +311,9 @@ export class PanelView extends ItemView {
         b.modified.localeCompare(a.modified)
       );
       this.sessionsSnapshot = sessions;
-      this.runningSnapshot = res.runningSessionIds;
-      this.list.setSessions(sessions, res.runningSessionIds);
-      this.tree?.refresh();
+      this.runningSnapshot = res.runningSessionIds ?? [];
+      this.renderRunning();
+      this.watchActiveStore();
       // The fetch's running set is only a fallback — the live feed owns it
       // once connected (pi-web's model).
       this.startRunningStream();
@@ -317,6 +321,34 @@ export class PanelView extends ItemView {
       this.list.setSessions([], []);
       new Notice(`pi: ${String(e)}`);
     }
+  }
+
+  /** Render the lists with the union of the server's running set and the
+   *  focused tab's own run state — the local store is an instant, authoritative
+   *  signal for the session the user is looking at, independent of the feed. */
+  private renderRunning(): void {
+    const ids = new Set(this.runningSnapshot);
+    const store = this.plugin.getActiveStore();
+    if (store?.state.agentRunning && store.state.sessionId) {
+      ids.add(store.state.sessionId);
+    }
+    this.list.setSessions(this.sessionsSnapshot, [...ids]);
+    this.tree?.refresh();
+  }
+
+  /** Re-render when the focused tab's run state flips (send → running, done). */
+  private watchActiveStore(): void {
+    this.unsubActive?.();
+    this.unsubActive = null;
+    const store = this.plugin.getActiveStore();
+    if (!store) return;
+    this.lastActiveKey = `${store.state.sessionId}:${store.state.agentRunning}`;
+    this.unsubActive = store.subscribe(() => {
+      const key = `${store.state.sessionId}:${store.state.agentRunning}`;
+      if (key === this.lastActiveKey) return;
+      this.lastActiveKey = key;
+      this.renderRunning();
+    });
   }
 
   /** Live run-state feed (pi-web's GET /api/agent/running/events): the server
@@ -335,12 +367,18 @@ export class PanelView extends ItemView {
         const ev = data as { type?: string; runningSessionIds?: string[] };
         if (ev?.type !== "running" || !Array.isArray(ev.runningSessionIds)) return;
         this.runningSnapshot = ev.runningSessionIds;
-        this.list.setSessions(this.sessionsSnapshot, this.runningSnapshot);
-        this.tree?.refresh();
+        this.renderRunning();
       },
-      onError: () => {},
+      onError: (e) => {
+        // Not silent: a dead feed is exactly the bug class that hides here.
+        console.warn("[pi-obsidian] running feed error:", e.message);
+      },
       onClose: () => {
         this.runningStream = null;
+        // One lazy retry — refresh()/machine switches re-establish too.
+        setTimeout(() => {
+          if (!this.runningStream && this.runningStreamInstance) this.startRunningStream();
+        }, 5000);
       },
     });
   }

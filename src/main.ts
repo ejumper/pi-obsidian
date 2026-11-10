@@ -192,20 +192,35 @@ export default class PiPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
 
+  /** Effective paths for a machine: per-instance override, else the global
+   *  fallback (pre-0.4.2 settings keep working untouched). */
+  getInstancePaths(instanceId: string | null | undefined): { pathPrefix: string; defaultSessionPath: string } {
+    const inst =
+      this.getInstances().find((i) => i.id === instanceId) ?? this.getDefaultInstance();
+    return {
+      pathPrefix: (inst.pathPrefix ?? "").trim() || this.settings.pathPrefix,
+      defaultSessionPath: (inst.defaultSessionPath ?? "").trim() || this.settings.defaultSessionPath,
+    };
+  }
+
   /** Resolve the cwd for a new session via the settings chain (Phase 4). */
-  async resolveNewSessionCwd(): Promise<string> {
-    return resolveCwdChain(this.client, {
-      defaultPath: this.settings.defaultSessionPath,
+  async resolveNewSessionCwd(instanceId: string): Promise<string> {
+    const paths = this.getInstancePaths(instanceId);
+    return resolveCwdChain(this.getClient(instanceId), {
+      defaultPath: paths.defaultSessionPath,
       currentCwd: this.getActiveStore()?.state.cwd || null,
       lastCwd: this.settings.lastCwd,
-      fallbackRoot: this.settings.pathPrefix,
+      fallbackRoot: paths.pathPrefix,
     });
   }
 
-  /** New-session flow: cwd from the chain, first prompt creates the session. */
+  /** New-session flow: cwd from the chain (the TARGET tab's machine), first
+   *  prompt creates the session. */
   async prepareNewSession(): Promise<void> {
-    const cwd = await this.resolveNewSessionCwd();
-    await this.withChatView((view) => view.prepareNewSession(cwd));
+    await this.withChatView(async (view) => {
+      const cwd = await this.resolveNewSessionCwd(view.getInstanceId());
+      view.prepareNewSession(cwd);
+    });
   }
 
   /** Open a session in the chat view (panel-driven). */
