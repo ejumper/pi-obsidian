@@ -215,10 +215,12 @@ export class ChatView extends ItemView {
     this.composerEl = composer;
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-chat-input",
-      placeholder: "Prompt… (Enter sends, Shift+Enter newline)",
+      placeholder: Platform.isMobile
+        ? "Prompt… (return = newline, send button sends)"
+        : "Prompt… (Enter sends, Shift+Enter newline)",
       // textareas default to rows=2 — that intrinsic height would defeat the
       // one-line min-height and become the auto-grow floor
-      attr: { rows: "1" },
+      attr: { rows: "1", enterkeyhint: "enter" },
     });
     // Staged attachment chips, right under the editor (pi-web placement).
     const chipHost = composer.createDiv({ cls: "pi-attach-host" });
@@ -226,7 +228,11 @@ export class ChatView extends ItemView {
 
     this.inputEl.addEventListener("input", () => this.growEditor());
     this.inputEl.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" && !ev.shiftKey) {
+      // Mobile: the return key inserts a newline (no way to type newlines
+      // otherwise) — the send button is the only send path. Desktop keeps the
+      // chat convention: Enter sends, Shift+Enter newline. Hardware keyboards
+      // on tablets get mobile behavior — accepted tradeoff (Phase 12).
+      if (ev.key === "Enter" && !ev.shiftKey && !Platform.isMobile) {
         ev.preventDefault();
         void this.sendCurrent();
       }
