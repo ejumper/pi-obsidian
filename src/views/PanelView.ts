@@ -1,5 +1,5 @@
 // The pi panel: right-sidebar control center (session picker + controls +
-// settings shortcuts). Per PLAN/PHASES/PHASE-3.md. Mobile and desktop layouts
+// machine pill). Per PLAN/PHASES/PHASE-3.md. Mobile and desktop layouts
 // mirror Obsidian's own sidebar conventions via CSS `order` (see styles.css).
 
 import { ItemView, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
@@ -25,6 +25,8 @@ export class PanelView extends ItemView {
   private mode: PanelMode = "recent";
   /** Include/exclude open-file @mentions pill (settings-backed). */
   private mentionsPill: PillSelect<boolean> | null = null;
+  /** Machine pill — the focused pi tab's instance selector (Phase 13 / T47). */
+  private machinePill: PillSelect<string> | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -72,14 +74,39 @@ export class PanelView extends ItemView {
     root.addClass("pi-panel");
     root.addClass(Platform.isMobile ? "pi-panel--mobile" : "pi-panel--desktop");
 
-    // Settings shortcuts (pinned: top on mobile, bottom on desktop).
-    const settings = root.createDiv({ cls: "pi-panel-settings" });
-    const modelsBtn = this.panelButton(settings, "cpu", "Models settings");
-    modelsBtn.addEventListener("click", () => this.openPluginSettings());
-    const skillsBtn = this.panelButton(settings, "book-open", "Skills settings (coming soon)");
-    skillsBtn.disabled = true;
-    const pluginsBtn = this.panelButton(settings, "blocks", "Plugins settings (coming soon)");
-    pluginsBtn.disabled = true;
+    // Machine pill — which machine the focused pi tab talks to. Keeps the old
+    // settings-row slot and its `pi-panel-settings` class: same pinned
+    // placement (top on mobile, bottom on desktop) and full-width row; the
+    // settings shortcuts it replaces stay reachable via Obsidian's settings
+    // search.
+    const instances = this.plugin.getInstances();
+    const current = this.currentMachine();
+    const machinePill = new PillSelect<string>({
+      icon: "monitor",
+      label: current.name,
+      value: current.id,
+      options:
+        instances.length > 0
+          ? instances.map((i) => ({ value: i.id, label: i.name }))
+          : [{ value: "", label: "Default" }], // defensive: nothing configured
+      onChange: (id) => {
+        if (!id) return; // inert "Default" placeholder (nothing configured)
+        // Re-point the focused tab first, then refetch — the store reset
+        // drops the old machine's sessions, so reload the lists.
+        void this.plugin
+          .withChatView((v) => v.setInstance(id))
+          .then(() => this.refresh());
+      },
+    });
+    this.machinePill = machinePill;
+    root.createDiv({ cls: "pi-panel-settings" }).appendChild(machinePill.el);
+    // Re-sync when the focused pi tab changes, and on pill open — mobile tab
+    // switches don't reliably deliver active-leaf-change (see main.ts), so a
+    // tap re-reads the focused tab before the user picks a machine.
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => this.syncMachinePill())
+    );
+    machinePill.el.addEventListener("click", () => this.syncMachinePill(), true);
 
     // Recent | Folders toggle.
     const toggle = root.createDiv({ cls: "pi-panel-toggle" });
@@ -150,6 +177,40 @@ export class PanelView extends ItemView {
     pill.setValue(include);
   }
 
+  /** Re-sync the machine pill (label + selection) to the focused pi tab's
+   *  instance — from refresh(), focus changes, and pill open, mirroring how
+   *  the mentions pill re-syncs in refresh(). */
+  private syncMachinePill(): void {
+    const pill = this.machinePill;
+    if (!pill) return;
+    const current = this.currentMachine();
+    pill.setValue(current.id, current.name);
+  }
+
+  /** The machine pill's current value: the focused tab's instance, else the
+   *  default instance — or the inert "Default" placeholder when no instance
+   *  is configured (defensive, T47). */
+  private currentMachine(): { id: string; name: string } {
+    const instances = this.plugin.getInstances();
+    if (instances.length === 0) return { id: "", name: "Default" };
+    const id = this.focusedInstanceId();
+    return instances.find((i) => i.id === id) ?? instances[0];
+  }
+
+  /** The focused pi tab's instance id, through the plugin's existing
+   *  active-view tracking (no second tracker): getActiveStore() resolves via
+   *  the tracked active view, so the view whose store it returns — matched by
+   *  identity across getChatViews() — is the focused tab. No pi tab (or an
+   *  unbound one) → the instance a fresh tab would bind to. */
+  private focusedInstanceId(): string {
+    if (this.plugin.getInstances().length === 0) return ""; // defensive
+    const active = this.plugin.getActiveStore();
+    const view = active
+      ? this.plugin.getChatViews().find((v) => v.getStore() === active)
+      : undefined;
+    return view?.getInstanceId() || this.plugin.getInstanceForNewTab().id;
+  }
+
   /** Close the right sidebar/drawer after an action that leaves the panel
    *  (session selected, new session started). */
   private collapse(): void {
@@ -195,13 +256,20 @@ export class PanelView extends ItemView {
       return;
     }
     try {
+      // Folders are per-machine too: resolve and browse through the focused
+      // tab's client. listDir re-resolves per call, so a machine switch is
+      // picked up by the next refresh() → tree.refresh().
       const root = await resolveServerPath(
-        this.plugin.client,
+        this.plugin.getClient(this.focusedInstanceId()),
         this.plugin.settings.pathPrefix
       );
       this.tree = new ServerTree({
         rootPath: root,
-        listDir: (path) => this.plugin.client.listDir(path).then((r) => r.entries),
+        listDir: (path) =>
+          this.plugin
+            .getClient(this.focusedInstanceId())
+            .listDir(path)
+            .then((r) => r.entries),
         getSessions: (dir) => this.sessionsSnapshot.filter((s) => s.cwd === dir),
         runningIds: () => this.runningSnapshot,
         onNewSession: (cwd) => {
@@ -223,9 +291,13 @@ export class PanelView extends ItemView {
 
   async refresh(): Promise<void> {
     this.syncMentionsPill();
+    this.syncMachinePill();
     this.list.setLoading();
     try {
-      const res = await this.plugin.client.listSessions();
+      // Sessions are per-machine: list them from the focused tab's client.
+      const res = await this.plugin
+        .getClient(this.focusedInstanceId())
+        .listSessions();
       const sessions = [...res.sessions].sort((a, b) =>
         b.modified.localeCompare(a.modified)
       );
@@ -237,14 +309,5 @@ export class PanelView extends ItemView {
       this.list.setSessions([], []);
       new Notice(`pi: ${String(e)}`);
     }
-  }
-
-  private openPluginSettings(): void {
-    // Not in the public API surface, but stable across versions.
-    const setting = (this.app as unknown as {
-      setting: { open(): void; openTabById(id: string): void };
-    }).setting;
-    setting.open();
-    setting.openTabById(this.plugin.manifest.id);
   }
 }

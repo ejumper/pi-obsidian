@@ -54,7 +54,15 @@ globalThis.fetch = async (url) => {
 
 const bundle = require("../dist/main.js");
 const PiPlugin = bundle.default ?? bundle;
-const appStub = { workspace: { on: () => ({}) } };
+const appStub = {
+  workspace: {
+    on: () => ({}),
+    getLeavesOfType: () => [],
+    iterateRootLeaves: () => {},
+    activeLeaf: null,
+    revealLeaf: () => {},
+  },
+};
 const plugin = new PiPlugin(appStub, { version: "test", id: "pi-obsidian" });
 await plugin.onload();
 

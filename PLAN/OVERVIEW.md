@@ -90,6 +90,11 @@ speaking the pi-web site's existing HTTP+SSE API over Tailscale.
 - [x] **Phase 10 (D) — Bottom-bar takeover** *(PHASE-10.md)*: composer covers the mobile nav
       when closed (controls lower, background to the screen edge), tab button joins the button
       row (tap=overview, long-press=menu), mentions toggle moves to the panel (both layouts).
+- [x] **Phase 12 — Composer Enter key** *(PHASE-12.md)*: mobile return = newline (send button
+      sends), desktop keeps Enter-send / Shift-Enter-newline.
+- [x] **Phase 13 — Multi-instance machines** *(PHASE-13.md)*: named pi-web instances in
+      settings, per-tab machine binding (persisted), panel machine pill, per-machine session
+      lists, last-used machine for new tabs. **Ship as 0.4.0.**
 - [x] **Phase 11 (E) — Multiple pi tabs** *(PHASE-11.md)*: N sessions in N tabs/splits with an
       active-view concept; new "Open pi in new tab" command. **Ship everything as 0.3.2.**
 - [~] **Phase 6 — Hardening & distribution** (2026-11-04/05): phone-validated via BRAT
