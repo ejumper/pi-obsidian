@@ -11,6 +11,7 @@ import type { TranscriptUnit } from "../message-display";
 import { MessageView } from "./pi-web/MessageView";
 import { ProcessDetailsGroup } from "./pi-web/ProcessDetailsGroup";
 import { setMarkdownContext } from "./pi-web/markdown-context";
+import { setApiBase } from "./pi-web/api-base";
 
 export interface TranscriptData {
   units: TranscriptUnit[];
@@ -24,6 +25,9 @@ export interface TranscriptData {
   /** Called after every committed render — ChatView scrolls on session swaps
    *  only once the DOM actually carries the new content. */
   onRendered?: () => void;
+  /** This tab's machine base URL — the React subtree's api shim is a module
+   *  global, so it is re-pointed on every render pass (Phase 13). */
+  apiBase?: string;
 }
 
 /** pi-web's rule: only the LAST assistant message of a turn shows the
@@ -196,6 +200,9 @@ export class TranscriptRenderer {
   }
 
   update(data: TranscriptData): void {
+    // The api shim is a module global — re-point it every pass so two tabs on
+    // different machines don't race it (Phase 13).
+    if (data.apiBase) setApiBase(data.apiBase);
     this.root?.render(<TranscriptView {...data} />);
   }
 

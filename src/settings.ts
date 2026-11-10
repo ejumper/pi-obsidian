@@ -13,9 +13,19 @@ const THINKING_LEVELS: { value: ThinkingLevelOption; label: string }[] = [
   { value: "max", label: "Max" },
 ];
 
-export interface PiSettings {
-  /** pi-web site base URL (desktop service or pi-web container). */
+/** A named pi-web instance the plugin can talk to (multiple servers). */
+export interface PiInstance {
+  id: string;
+  name: string;
   baseUrl: string;
+}
+
+export interface PiSettings {
+  /** Named pi-web instances — the first entry is the default. */
+  instances: PiInstance[];
+  /** @deprecated Single-instance base URL from pre-multi-instance settings;
+   *  kept only for migration reads in loadSettings(). */
+  baseUrl?: string;
   /** Vault root → server path prefix, for open-file mentions (Phase 2). */
   pathPrefix: string;
   /** Last working directory used for new sessions. */
@@ -26,12 +36,14 @@ export interface PiSettings {
   defaultModel: { provider: string; modelId: string } | null;
   /** Default thinking level for new sessions ("auto" = pi's own default). */
   defaultThinkingLevel: ThinkingLevelOption;
+  /** Instance the most recent pi tab is bound to — new tabs start here. */
+  lastUsedInstanceId?: string;
   /** Include open-file @mentions in outgoing prompts. */
   includeMentions: boolean;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
-  baseUrl: "http://localhost:30141",
+  instances: [{ id: "instance-1", name: "Default", baseUrl: "http://localhost:30141" }],
   pathPrefix: "~/HalfaCloud/Jumperpedia",
   lastCwd: "/home/ejumps",
   defaultSessionPath: "",
@@ -52,18 +64,66 @@ export class PiSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl)
-      .setName("Base URL")
-      .setDesc("The pi-web site this plugin talks to (e.g. http://localhost:30141 or https://pi-desktop.halfab.net)")
-      .addText((text) =>
-        text
-          .setPlaceholder("http://localhost:30141")
-          .setValue(this.plugin.settings.baseUrl)
-          .onChange(async (value) => {
-            this.plugin.settings.baseUrl = value.trim();
+    new Setting(containerEl).setName("Servers").setHeading();
+
+    const renderServers = (): void => {
+      const instances = this.plugin.settings.instances;
+
+      instances.forEach((instance, index) => {
+        const setting = new Setting(containerEl).setName(
+          index === 0 ? "Default URL" : instance.name.trim() || `URL ${index + 1}`
+        );
+        setting.addText((text) =>
+          text
+            .setPlaceholder("Name")
+            .setValue(instance.name)
+            .onChange(async (value) => {
+              instance.name = value;
+              await this.plugin.saveSettings();
+            })
+        );
+        setting.addText((text) =>
+          text
+            .setPlaceholder("URL")
+            .setValue(instance.baseUrl)
+            .onChange(async (value) => {
+              instance.baseUrl = value.trim();
+              await this.plugin.saveSettings();
+            })
+        );
+        // Entry #0 is the default — it can be edited but never removed.
+        if (index > 0) {
+          setting.addExtraButton((button) =>
+            button
+              .setIcon("trash")
+              .setTooltip("Remove")
+              .onClick(async () => {
+                this.plugin.settings.instances.splice(index, 1);
+                await this.plugin.saveSettings();
+                this.display();
+              })
+          );
+        }
+      });
+
+      new Setting(containerEl).addButton((button) =>
+        button
+          .setButtonText("Add URL")
+          .setCta()
+          .setIcon("plus")
+          .onClick(async () => {
+            const n = this.plugin.settings.instances.length + 1;
+            this.plugin.settings.instances.push({
+              id: `instance-${n}-${Date.now()}`,
+              name: `URL ${n}`,
+              baseUrl: "",
+            });
             await this.plugin.saveSettings();
+            this.display();
           })
       );
+    };
+    renderServers();
 
     new Setting(containerEl)
       .setName("Vault path prefix")

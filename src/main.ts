@@ -1,6 +1,6 @@
 import { MarkdownView, Menu, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
 import { PiClient } from "./api/client";
-import { DEFAULT_SETTINGS, PiSettingTab, type PiSettings } from "./settings";
+import { DEFAULT_SETTINGS, PiSettingTab, type PiInstance, type PiSettings } from "./settings";
 import type { AgentStore } from "./state/agent-store";
 import { resolveNewSessionCwd as resolveCwdChain } from "./state/paths";
 import { setApiBase } from "./views/react/pi-web/api-base";
@@ -19,15 +19,18 @@ export const BUILD_ID: string = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID
 
 export default class PiPlugin extends Plugin {
   settings: PiSettings = DEFAULT_SETTINGS;
-  client: PiClient = new PiClient(DEFAULT_SETTINGS.baseUrl);
+  client: PiClient = new PiClient(DEFAULT_SETTINGS.instances[0].baseUrl);
+  /** Per-instance client cache, keyed by instance id (rebuilt lazily). */
+  private clients = new Map<string, PiClient>();
   /** The most recently active chat view (T41) — panel/ribbon/commands target it. */
   private activeChatView: ChatView | null = null;
 
   async onload(): Promise<void> {
     try {
       await this.loadSettings();
-      this.client = new PiClient(this.settings.baseUrl);
-      setApiBase(this.settings.baseUrl);
+      this.clients.clear();
+      this.client = this.getClient(null);
+      setApiBase(this.getDefaultInstance().baseUrl);
 
     this.registerView(VIEW_TYPE_PI_CHAT, (leaf) => this.createChatView(leaf));
     this.registerView(VIEW_TYPE_PI_PANEL, (leaf) => new PanelView(leaf, this));
@@ -234,6 +237,28 @@ export default class PiPlugin extends Plugin {
    *  hidden tabs). */
   setActiveChatView(view: ChatView): void {
     this.activeChatView = view;
+    // "New tab opens on the last-used machine" (Phase 13) — only persist a
+    // change, focus events are frequent.
+    const id = view.getInstanceId();
+    if (id && this.settings.lastUsedInstanceId !== id) {
+      this.settings.lastUsedInstanceId = id;
+      void this.saveSettings();
+    }
+  }
+
+  /** The instance a freshly created pi tab binds to: last-used, else the
+   *  default (instances[0]). */
+  getInstanceForNewTab(): PiInstance {
+    const last = this.getInstances().find((i) => i.id === this.settings.lastUsedInstanceId);
+    return last ?? this.getDefaultInstance();
+  }
+
+  /** All live chat views (cross-machine duplicate checks, panel targeting). */
+  getChatViews(): ChatView[] {
+    return this.app.workspace
+      .getLeavesOfType(VIEW_TYPE_PI_CHAT)
+      .map((l) => l.view)
+      .filter((v): v is ChatView => v instanceof ChatView);
   }
 
   /** The store of the most recently active chat view, if any. */
@@ -255,12 +280,42 @@ export default class PiPlugin extends Plugin {
 
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const raw = (await this.loadData()) as Partial<PiSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, raw ?? {});
+    // Migration: pre-multi-instance settings stored a single `baseUrl`.
+    if (raw?.baseUrl && !raw.instances) {
+      this.settings.instances = [{ id: "instance-1", name: "Default", baseUrl: raw.baseUrl }];
+    }
   }
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
-    this.client = new PiClient(this.settings.baseUrl);
-    setApiBase(this.settings.baseUrl);
+    // URLs may have changed — drop the cached clients and rebuild the default.
+    this.clients.clear();
+    this.client = this.getClient(null);
+    setApiBase(this.getDefaultInstance().baseUrl);
+  }
+
+  /** All configured instances (first = default). */
+  getInstances(): PiInstance[] {
+    return this.settings.instances;
+  }
+
+  /** The default instance — the first entry of the list. */
+  getDefaultInstance(): PiInstance {
+    return this.settings.instances[0];
+  }
+
+  /** The client for an instance id — falls back to the default instance when
+   *  the id is unknown/absent. Cached per id and rebuilt lazily. */
+  getClient(instanceId: string | null | undefined): PiClient {
+    const instances = this.settings.instances;
+    const instance = (instanceId ? instances.find((i) => i.id === instanceId) : null) ?? instances[0];
+    let client = this.clients.get(instance.id);
+    if (!client) {
+      client = new PiClient(instance.baseUrl);
+      this.clients.set(instance.id, client);
+    }
+    return client;
   }
 }

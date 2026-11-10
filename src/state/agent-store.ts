@@ -256,6 +256,15 @@ export class AgentStore {
     return () => this.listeners.delete(listener);
   }
 
+  /** Point the store at another machine's client (Phase 13 machine switch):
+   *  tear down the stream and drop to the no-session state — sessions are
+   *  per-machine storage, so nothing carries over. */
+  rebind(client: PiClient): void {
+    this.closeStream();
+    this.reset();
+    this.client = client;
+  }
+
   destroy(): void {
     this.destroyed = true;
     document.removeEventListener("visibilitychange", this.onVisible);

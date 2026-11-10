@@ -59,6 +59,8 @@ export class ChatView extends ItemView {
   private prevLoadingForScroll = false;
   private pendingScrollToBottom = false;
   private prevShownForFocus = false;
+  /** The machine this tab talks to (Phase 13) — persisted in leaf state. */
+  private instanceId = "";
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -71,8 +73,30 @@ export class ChatView extends ItemView {
     // try/catch instead.
   }
 
+  /** Leaf-state persistence: tabs keep their machine across restarts. */
+  getState(): { instanceId: string } {
+    return { instanceId: this.instanceId };
+  }
+
+  async setState(state: { instanceId?: string } | null): Promise<void> {
+    if (state?.instanceId) this.instanceId = state.instanceId;
+  }
+
+  getInstanceId(): string {
+    return this.instanceId;
+  }
+
+  /** Re-point this tab at another machine (panel pill): store rebinds and the
+   *  tab drops to no-session — sessions are per-machine storage. */
+  setInstance(id: string): void {
+    if (!id || id === this.instanceId) return;
+    this.instanceId = id;
+    this.store.rebind(this.plugin.getClient(id));
+    this.render();
+  }
+
   private createStore(): AgentStore {
-    return new AgentStore(this.plugin.client, {
+    return new AgentStore(this.plugin.getClient(this.instanceId || undefined), {
       defaultThinkingLevel: this.plugin.settings.defaultThinkingLevel,
       onNotice: (message, type) =>
         new Notice(`pi: ${message}`, type === "error" ? 8000 : 5000),
@@ -96,6 +120,9 @@ export class ChatView extends ItemView {
     // pattern as graph/kanban views.
     this.navigation = false;
     try {
+      // Fresh tabs bind to last-used ?? default machine (Phase 13). Must run
+      // before createStore — the store is created against this tab's client.
+      if (!this.instanceId) this.instanceId = this.plugin.getInstanceForNewTab().id;
       this.store = this.createStore();
       this.attachments = new AttachmentStage({
         upload: (file) => this.plugin.client.uploadAttachment(file),
@@ -522,6 +549,20 @@ export class ChatView extends ItemView {
   /** Open a session by id (panel-driven). */
   openSessionById(id: string): void {
     if (!this.store) return;
+    // Soft guard (Phase 13): session storage is per-machine today, so this
+    // should never fire — but if storage is ever shared, two machines writing
+    // one session file is a hazard worth a warning.
+    const clash = this.plugin
+      .getChatViews()
+      .find(
+        (v) =>
+          v !== this &&
+          v.getInstanceId() !== this.instanceId &&
+          v.getStore()?.state.sessionId === id
+      );
+    if (clash) {
+      new Notice("pi: this session is also open on a tab bound to another machine");
+    }
     void this.store.openSession(id);
   }
 
@@ -621,6 +662,7 @@ export class ChatView extends ItemView {
       modelNames: this.modelNames,
       cwd: s.cwd,
       sessionId: s.sessionId ?? undefined,
+      apiBase: this.plugin.getClient(this.instanceId).baseUrl,
       onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
       onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },
       onEditContent: (content: string) => this.insertIntoComposer(content),
