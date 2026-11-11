@@ -95,7 +95,7 @@
   width: var(--pi-view-width, 100vw);
   bottom: 6px; /* overridden by direct style from composerBottomPx() */
   z-index: var(--layer-sidedock, 10);
-  padding: 10px;
+  padding: 8px 10px 10px; /* top 8 = editor margin-bottom 8: even band (0.4.7) */
   background: var(--background-primary);
   border-top: 1px solid var(--background-modifier-border);
 }
@@ -147,7 +147,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   max-height: min(8.6em, calc(100dvh - var(--pi-keyboard-inset, 0px) - 220px));
   resize: none;
   overflow-y: auto;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   /* match the file editor's type */
   font-family: var(--font-text);
   font-size: var(--font-text-size);
@@ -159,7 +159,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   /* !important: Obsidian's global form-control styling (and the iOS UA's)
      wins the cascade on textarea background/border at focus — the input must
      match the button row's grey in every state (0.4.4). */
-  background: #1e1e1e !important; /* user-set 0.4.5: exact, opaque */
+  background: var(--background-modifier-hover) !important; /* same gray as the button row (0.4.7) */
   border: none !important;
   box-shadow: none;
   border-radius: var(--radius-m);
@@ -169,7 +169,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 .pi-chat-input:hover,
 .pi-chat-input:focus,
 .pi-chat-input:focus-visible {
-  background: #1e1e1e !important;
+  background: var(--background-modifier-hover) !important;
   border: none !important;
   outline: none;
   box-shadow: none;
@@ -249,22 +249,16 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 
 /* Send: grey with nothing to send, theme accent once there is text. */
 .pi-send-btn {
-  background: var(--background-modifier-hover);
-  color: var(--text-muted);
-}
-
-.pi-send-btn:not(:disabled) {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
 
-.pi-send-btn:not(:disabled):hover {
+.pi-send-btn:hover:not(:disabled) {
   background: var(--interactive-accent-hover, var(--interactive-accent));
-  color: var(--text-on-accent);
 }
 
 .pi-send-btn:disabled {
-  opacity: 1;
+  opacity: 0.5; /* user-set 0.4.7: accent always, dimmed when empty */
   cursor: default;
 }
 
