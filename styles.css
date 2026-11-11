@@ -159,7 +159,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   /* !important: Obsidian's global form-control styling (and the iOS UA's)
      wins the cascade on textarea background/border at focus — the input must
      match the button row's grey in every state (0.4.4). */
-  background: var(--background-modifier-hover) !important;
+  background: #1e1e1e !important; /* user-set 0.4.5: exact, opaque */
   border: none !important;
   box-shadow: none;
   border-radius: var(--radius-m);
@@ -169,7 +169,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 .pi-chat-input:hover,
 .pi-chat-input:focus,
 .pi-chat-input:focus-visible {
-  background: var(--background-modifier-hover) !important;
+  background: #1e1e1e !important;
   border: none !important;
   outline: none;
   box-shadow: none;
@@ -736,8 +736,8 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 }
 
 .pi-panel-toggle-btn.is-active {
-  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
-  color: var(--text-normal);
+  background: var(--interactive-accent); /* user-set 0.4.5: opaque */
+  color: var(--text-on-accent, var(--text-normal));
 }
 
 .pi-panel-controls .pi-pill {
