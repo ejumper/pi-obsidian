@@ -234,6 +234,7 @@ export type AgentCommand =
   | { type: "set_auto_retry"; enabled: boolean }
   | { type: "compact"; customInstructions?: string }
   | { type: "abort_compaction" }
+  | { type: "clear_queue" }
   | { type: "fork"; entryId: string }
   | { type: "navigate_tree"; targetId: string }
   | { type: "set_session_name"; name: string }

@@ -51,6 +51,7 @@ export class ChatView extends ItemView {
   private detachKeyboard: (() => void) | null = null;
   private composerEl!: HTMLElement;
   private barSizeEl!: HTMLElement;
+  private queueHostEl!: HTMLElement;
   private geometryTimer: ReturnType<typeof setInterval> | null = null;
   // Scroll-to-bottom bookkeeping: opening/switching a session (or a load
   // settling) must land at the end of the transcript even when the previous
@@ -240,6 +241,11 @@ export class ChatView extends ItemView {
     // Composer block: body-attached + fixed (screen geometry — see styles.css).
     const composer = document.body.createDiv({ cls: "pi-chat-composer" });
     this.composerEl = composer;
+    // Composer band (0.4.3): [separator line / loading bar] … queued pills …
+    // attachment chips … editor … buttons.
+    this.queueHostEl = composer.createDiv({ cls: "pi-queue-strip" });
+    const chipHost = composer.createDiv({ cls: "pi-attach-host" });
+    this.attachments.renderChips(chipHost);
     this.inputEl = composer.createEl("textarea", {
       cls: "pi-chat-input",
       placeholder: Platform.isMobile
@@ -249,10 +255,6 @@ export class ChatView extends ItemView {
       // one-line min-height and become the auto-grow floor
       attr: { rows: "1", enterkeyhint: "enter" },
     });
-    // Staged attachment chips, right under the editor (pi-web placement).
-    const chipHost = composer.createDiv({ cls: "pi-attach-host" });
-    this.attachments.renderChips(chipHost);
-
     this.inputEl.addEventListener("input", () => this.growEditor());
     this.inputEl.addEventListener("keydown", (ev) => {
       // Mobile: the return key inserts a newline (no way to type newlines
@@ -595,6 +597,35 @@ export class ChatView extends ItemView {
   /** Session-bar context size — pi-web's AppShell format translated:
    *  "<current>/<max> | <pct>%", k/M abbreviation per pi-web's fmt, and
    *  pi-web's warning thresholds (>70 warn, >90 crit) on theme colors. */
+  /** Queued-message pills (0.4.3): full-width pills above the editor, one per
+   *  queued steering/follow-up message, each with a down arrow that returns
+   *  that message to the editor. */
+  private renderQueue(q: { steering?: string[]; followUp?: string[] } | null): void {
+    const host = this.queueHostEl;
+    host.empty();
+    const items: Array<{ kind: "steering" | "followUp"; index: number; text: string }> = [];
+    (q?.steering ?? []).forEach((text, index) => items.push({ kind: "steering", index, text }));
+    (q?.followUp ?? []).forEach((text, index) => items.push({ kind: "followUp", index, text }));
+    for (const item of items) {
+      const pill = host.createDiv({ cls: "pi-queue-pill" });
+      pill.createDiv({ cls: "pi-queue-text", text: item.text });
+      const btn = pill.createEl("button", {
+        cls: "pi-queue-recall",
+        attr: { "aria-label": "Return to editor", title: "Return to editor" },
+      });
+      setIcon(btn, "arrow-down");
+      btn.addEventListener("click", () => void this.recallQueueItem(item));
+    }
+  }
+
+  private async recallQueueItem(item: { kind: "steering" | "followUp"; index: number; text: string }): Promise<void> {
+    const text = await this.store.recallQueueItem(item.kind, item.index);
+    if (text === null) return;
+    this.inputEl.value = this.inputEl.value.trim() ? `${this.inputEl.value}\n${text}` : text;
+    this.growEditor();
+    this.inputEl.focus();
+  }
+
   /** pi-web's composer insertIfEmpty — used by message "edit from here". */
   insertIntoComposer(text: string): void {
     if (this.inputEl.value.trim()) return;
@@ -637,6 +668,7 @@ export class ChatView extends ItemView {
       s.agentRunning ? `running${tools}` : ""
     );
     this.renderContextSize(s.contextUsage);
+    this.renderQueue(s.queuedMessages);
     // Working indicator: bouncing line on the composer's top border (styles.css).
     this.composerEl.toggleClass("pi-working", s.agentRunning);
 

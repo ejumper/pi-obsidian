@@ -783,7 +783,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
   return (
     <div
       style={{
-        border: "1px solid var(--border)",
+        border: "none", /* pi-obsidian divergence (0.4.3 theme restyle) */
         borderRadius: 7,
         overflow: "hidden",
         fontSize: 13,
@@ -850,8 +850,8 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         borderRadius: 7,
         overflow: "hidden",
         fontSize: 12,
-        border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
-        background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
+        border: "none", /* pi-obsidian divergence (0.4.3 theme restyle) */
+        background: isError ? "#c62828" : "#00993a", /* pi-obsidian divergence (0.4.3 theme restyle) */
       }}
     >
       {/* ── Tool call header ── */}
@@ -865,23 +865,23 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           padding: "6px 10px",
           background: "none",
           border: "none",
-          color: "var(--text-muted)",
+          color: "rgba(255,255,255,0.92)", /* pi-obsidian divergence (0.4.3 theme restyle) */
           cursor: "pointer",
           fontSize: 12,
           textAlign: "left",
           minWidth: 0,
         }}
       >
-        <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+        <span style={{ color: "#fff", /* pi-obsidian divergence (0.4.3 theme restyle) */ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
           {block.toolName}
         </span>
-        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+        <span style={{ color: "rgba(255,255,255,0.75)", /* pi-obsidian divergence (0.4.3 theme restyle) */ fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
           {getToolPreview(block)}
         </span>
         {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+          <span style={{ fontSize: 11, color: "rgba(255,255,255,0.75)", /* pi-obsidian divergence (0.4.3 theme restyle) */ flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
         )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="rgba(255,255,255,0.75)" /* pi-obsidian divergence (0.4.3 theme restyle) */ strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
         </svg>
       </button>
@@ -892,12 +892,12 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           style={{
             margin: 0,
             padding: "8px 10px",
-            color: "var(--text-muted)",
+            color: "rgba(255,255,255,0.92)", /* pi-obsidian divergence (0.4.3 theme restyle) */
             fontSize: 12,
             lineHeight: 1.5,
             overflow: "auto",
-            background: "var(--bg-subtle)",
-            borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
+            background: "transparent", /* pi-obsidian divergence (0.4.3 theme restyle) */
+            borderTop: isError ? "1px solid #d65c62" : "1px solid #00b34a", /* pi-obsidian divergence (0.4.3 theme restyle) */
             whiteSpace: "pre-wrap",
             wordBreak: "break-all",
           }}
@@ -934,7 +934,7 @@ function PairedDiffResult({ diff }: {
   return (
     <div
       style={{
-        borderTop: "1px solid rgba(34,197,94,0.15)",
+        borderTop: "1px solid #00b34a", /* pi-obsidian divergence (0.4.3 theme restyle) */
         background: "var(--bg)",
       }}
     >
@@ -1177,20 +1177,20 @@ function PairedResult({ text, isEmpty, isError }: {
   return (
     <div
       style={{
-        borderTop: `1px solid ${isError ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.15)"}`,
-        background: isError ? "rgba(248,113,113,0.04)" : "var(--bg-subtle)",
+        borderTop: `1px solid ${isError ? "#d65c62" : "#00b34a"}`, /* pi-obsidian divergence (0.4.3 theme restyle) */
+        background: "transparent", /* pi-obsidian divergence (0.4.3 theme restyle) */
       }}
     >
       <pre
         style={{
           margin: 0,
           padding: "8px 10px",
-          color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
+          color: isError ? "#ffd9d9" : (isEmpty ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.92)"), /* pi-obsidian divergence (0.4.3 theme restyle) */
           fontSize: 12,
           lineHeight: 1.5,
           overflow: "auto",
           maxHeight: 400,
-          background: "var(--bg)",
+          background: "transparent", /* pi-obsidian divergence (0.4.3 theme restyle) */
           whiteSpace: "pre-wrap",
           wordBreak: "break-all",
           fontStyle: isEmpty ? "italic" : "normal",

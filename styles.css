@@ -116,32 +116,25 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   position: absolute;
   top: -1px;
   left: 0;
-  right: 0;
+  width: 28%;
   height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--interactive-accent),
-    transparent
-  );
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
+  background: var(--interactive-accent);
   animation: pi-bounce 1.6s ease-in-out infinite alternate;
 }
 
 @keyframes pi-bounce {
-  0% {
-    background-position: 0% 0;
+  from {
+    transform: translateX(0);
   }
-  100% {
-    background-position: 100% 0;
+  to {
+    transform: translateX(257%); /* 28%-wide segment travels the full track */
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pi-chat-composer.pi-working::before {
     animation: none;
-    background-position: 50% 0;
+    left: 36%;
   }
 }
 
@@ -163,15 +156,14 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   /* explicit look — iOS UA textarea styling otherwise leaks in */
   appearance: none;
   -webkit-appearance: none;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
+  background: var(--background-modifier-hover);
+  border: none;
   border-radius: var(--radius-m);
   padding: 6px 10px;
 }
 
-/* no hover background — keep only the focus border change */
 .pi-chat-input:hover {
-  background: var(--background-primary);
+  background: var(--background-modifier-hover);
 }
 
 .pi-chat-row {
@@ -906,7 +898,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   gap: 6px;
   max-width: 180px;
   padding: 3px 8px;
-  border: 1px solid var(--background-modifier-border);
+  border: none;
   border-radius: var(--pill-radius);
   background: var(--background-modifier-hover);
   font-size: var(--font-ui-smaller);
@@ -940,16 +932,23 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   border: none;
   box-shadow: none;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--text-error);
   cursor: pointer;
   padding: 0 2px;
-  border-radius: var(--pill-radius);
   appearance: none;
   -webkit-appearance: none;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.pi-attach-chip-x svg {
+  width: 16px;
+  height: 16px;
 }
 
 .pi-attach-chip-x:hover {
-  color: var(--text-normal);
+  color: var(--text-error);
+  opacity: 0.8;
 }
 
 /* ---------- pi-web rendering compat (T27: verbatim MessageView port) ----------
@@ -965,7 +964,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   --bg: var(--background-primary);
   --bg-panel: var(--background-secondary);
   --bg-subtle: var(--background-modifier-hover);
-  --user-bg: color-mix(in srgb, var(--color-blue) 15%, var(--background-primary));
+  --user-bg: #1666e5; /* user-set 0.4.3: opaque, exact */
   --font-mono: var(--font-monospace);
 }
 
@@ -1113,4 +1112,55 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 
 .pi-server-field input {
   width: 100%;
+}
+
+/* ---------- queued messages (0.4.3) ----------
+   Rendered by ChatView into the composer band between the separator line and
+   the editor. One full-width pill per queued message; the down arrow returns
+   that message to the editor. */
+.pi-queue-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.pi-queue-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 6px 5px 12px;
+  border: none;
+  border-radius: var(--pill-radius);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.pi-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pi-queue-recall {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.pi-queue-recall:hover {
+  color: var(--text-normal);
 }

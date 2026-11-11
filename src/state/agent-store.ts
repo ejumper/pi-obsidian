@@ -508,6 +508,34 @@ export class AgentStore {
   }
 
   /** clear_queue + put the recalled texts where the composer can use them. */
+  /** Per-item queue recall (0.4.3). pi-web only has recall-all (clear_queue),
+   *  so recalling one message clears the queue, hands the picked message back
+   *  to the caller (the composer), and re-queues the rest in order. The rest
+   *  go back as steering — follow-up entries drift to steering, which is fine
+   *  in practice (the queue only ever fills with steering messages). */
+  async recallQueueItem(kind: "steering" | "followUp", index: number): Promise<string | null> {
+    const sid = this.state.sessionId;
+    if (!sid) return null;
+    try {
+      const { data } = await this.client.sendCommand(sid, { type: "clear_queue" });
+      const r = (data ?? {}) as { steering?: string[]; followUp?: string[] };
+      const picked = (r[kind] ?? [])[index] ?? null;
+      const rest = [
+        ...(r.steering ?? []).filter((_, i) => !(kind === "steering" && i === index)),
+        ...(r.followUp ?? []).filter((_, i) => !(kind === "followUp" && i === index)),
+      ];
+      for (const message of rest) {
+        await this.client.sendCommand(sid, { type: "steer", message });
+      }
+      this.update({ queuedMessages: { steering: [], followUp: [] } });
+      return picked;
+    } catch (e) {
+      this.hooks.onNotice?.(
+        `Queue recall failed — ${e instanceof Error ? e.message : String(e)}`, "error");
+      return null;
+    }
+  }
+
   async recallQueue(): Promise<void> {
     const sid = this.state.sessionId;
     if (!sid) return;
