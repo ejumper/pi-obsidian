@@ -424,8 +424,9 @@ export class ChatView extends ItemView {
   private growEditor(): void {
     const el = this.inputEl;
     el.style.height = "auto";
-    // +2 for the top/bottom border (height is border-box; scrollHeight isn't).
-    el.style.height = `${el.scrollHeight + 2}px`;
+    // No +2 anymore: the border is none (0.4.4), and the extra 2px made a
+    // one-line editor 2px taller than the 40px button row (0.4.11).
+    el.style.height = `${el.scrollHeight}px`;
     this.updateComposerState();
   }
 

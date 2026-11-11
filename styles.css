@@ -163,7 +163,11 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   border: none !important;
   box-shadow: none;
   border-radius: var(--radius-m);
-  padding: 7px 10px;
+  /* 0.4.11: center the single line — the box is input-height tall (min-height
+     below) but text starts at the top, pooling all slack below the cursor.
+     Padding = (box - one line)/2 centers it exactly; floors at 7px for big
+     fonts whose line already exceeds the box. */
+  padding: max(7px, calc((var(--input-height) - 1em * var(--line-height-normal)) / 2)) 10px;
 }
 
 .pi-chat-input:hover,
