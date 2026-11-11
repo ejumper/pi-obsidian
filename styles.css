@@ -1134,6 +1134,12 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
    Rendered by ChatView into the composer band between the separator line and
    the editor. One full-width pill per queued message; the down arrow returns
    that message to the editor. */
+/* An empty strip still occupies its margin — collapse it so the resting
+   composer band is exactly padding-top above the editor (0.4.8). */
+.pi-queue-strip:empty {
+  display: none;
+}
+
 .pi-queue-strip {
   display: flex;
   flex-direction: column;
