@@ -95,7 +95,7 @@
   width: var(--pi-view-width, 100vw);
   bottom: 6px; /* overridden by direct style from composerBottomPx() */
   z-index: var(--layer-sidedock, 10);
-  padding: 8px 10px 10px; /* top 8 = editor margin-bottom 8: even band (0.4.7) */
+  padding: 10px; /* all sides 10; editor margin-bottom 10 keeps the band even (0.4.10) */
   background: var(--background-primary);
   border-top: 1px solid var(--background-modifier-border);
 }
@@ -143,11 +143,11 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   box-sizing: border-box;
   width: 100%;
   /* exactly one line + padding + border; growEditor() takes it from there */
-  min-height: calc(1em * var(--line-height-normal) + 14px);
+  min-height: var(--input-height); /* 0.4.10: one-line height = model chip / buttons */
   max-height: min(8.6em, calc(100dvh - var(--pi-keyboard-inset, 0px) - 220px));
   resize: none;
   overflow-y: auto;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   /* match the file editor's type */
   font-family: var(--font-text);
   font-size: var(--font-text-size);
@@ -163,7 +163,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   border: none !important;
   box-shadow: none;
   border-radius: var(--radius-m);
-  padding: 6px 10px;
+  padding: 7px 10px;
 }
 
 .pi-chat-input:hover,
@@ -208,7 +208,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   border: none;
   box-shadow: none;
   border-radius: var(--pill-radius);
-  background: #343434; /* user-set 0.4.9: literal — hover var is a translucent overlay, composites per-element */
+  background: #343434 !important; /* user-set 0.4.10: !important — the app's global button fill beats plain class rules */
   color: var(--text-muted);
   cursor: pointer;
   /* iOS UA button styling would otherwise stretch/repaint these */
@@ -247,14 +247,15 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   color: var(--text-normal);
 }
 
-/* Send: grey with nothing to send, theme accent once there is text. */
+/* Send: literal accent; !important defeats the app's global button fill
+   (the same leak .pi-attach-chip-x fights — it beats plain class rules). */
 .pi-send-btn {
-  background: #0061fe;
+  background: #0061fe !important;
   color: #ffffff;
 }
 
 .pi-send-btn:hover:not(:disabled) {
-  background: #1273ff;
+  background: #1273ff !important;
 }
 
 .pi-send-btn:disabled {
@@ -274,7 +275,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   border: none;
   box-shadow: none;
   border-radius: var(--pill-radius);
-  background: var(--color-red);
+  background: var(--color-red) !important; /* 0.4.10: same global button-fill leak */
   color: var(--text-on-accent);
   font-size: var(--font-ui-small);
   font-weight: var(--font-semibold);
@@ -294,7 +295,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   border: none;
   box-shadow: none;
   border-radius: var(--pill-radius);
-  background: #343434; /* user-set 0.4.9: literal — match .pi-icon-btn exactly */
+  background: #343434 !important; /* user-set 0.4.10: !important — same global button-fill leak */
   color: var(--text-muted);
   cursor: pointer;
   appearance: none;
@@ -915,7 +916,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   padding: 3px 8px;
   border: none;
   border-radius: var(--pill-radius);
-  background: #343434; /* user-set 0.4.9: literal — match the composer band */
+  background: #343434 !important; /* user-set 0.4.10: same leak */
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
 }
