@@ -133,10 +133,15 @@ export class PanelView extends ItemView {
     // Session area.
     this.mainEl = root.createDiv({ cls: "pi-panel-main" });
     this.list = new SessionList({
+      app: this.app,
       onOpen: (id) => {
         void this.plugin.openSessionInChat(id);
         this.collapse();
       },
+      renameSession: (id, name) =>
+        this.plugin.getClient(this.focusedInstanceId()).renameSession(id, name),
+      deleteSession: (id) => this.deleteSession(id),
+      onSessionsChanged: () => void this.refresh(),
     });
     this.mainEl.appendChild(this.list.el);
 
@@ -281,6 +286,11 @@ export class PanelView extends ItemView {
             .then((r) => r.entries),
         getSessions: (dir) => this.sessionsSnapshot.filter((s) => s.cwd === dir),
         runningIds: () => this.runningSnapshot,
+        app: this.app,
+        renameSession: (id, name) =>
+          this.plugin.getClient(this.focusedInstanceId()).renameSession(id, name),
+        deleteSession: (id) => this.deleteSession(id),
+        onSessionsChanged: () => void this.refresh(),
         onNewSession: (cwd) => {
           void this.plugin.withChatView((v) => v.prepareNewSession(cwd));
           this.collapse();
@@ -297,6 +307,17 @@ export class PanelView extends ItemView {
   }
 
   // ---------- data ----------
+
+  /** Delete a session on the focused machine, then drop it from any chat tab
+   *  that has it open — that store would keep operating on a session which
+   *  no longer exists. */
+  private async deleteSession(id: string): Promise<void> {
+    await this.plugin.getClient(this.focusedInstanceId()).deleteSession(id);
+    for (const view of this.plugin.getChatViews()) {
+      const store = view.getStore();
+      if (store?.state.sessionId === id) store.reset();
+    }
+  }
 
   async refresh(): Promise<void> {
     this.syncMentionsPill();

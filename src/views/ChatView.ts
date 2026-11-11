@@ -30,6 +30,9 @@ export class ChatView extends ItemView {
   // Obsidian View constructor set (titleEl was exactly this bug: View.load()
   // calls titleEl.setText(getDisplayText()) before onOpen ever runs).
   private sessionTitleEl!: HTMLElement;
+  /** Open inline rename input on the session title (dblclick rename), while
+   *  non-null updateTitle() must leave the title alone. */
+  private renameInputEl: HTMLInputElement | null = null;
   private barStatusEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private modelChipEl!: HTMLButtonElement;
@@ -58,7 +61,10 @@ export class ChatView extends ItemView {
   // scroll position wasn't "near bottom". Prefixed — see the note above.
   private prevSessionIdForScroll: string | null = null;
   private prevLoadingForScroll = false;
-  private pendingScrollToBottom = false;
+  /** Scroll-to-bottom intent window (0.4.6): the old one-shot flag burned
+   *  on the first, still-empty render of a session load. While the window is
+   *  open every commit and a set of timed passes re-scroll to the end. */
+  private pinBottomUntil = 0;
   private prevShownForFocus = false;
   /** The machine this tab talks to (Phase 13) — persisted in leaf state. */
   private instanceId = "";
@@ -232,6 +238,9 @@ export class ChatView extends ItemView {
     // Session bar (top): plain title, status, context size.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
     this.sessionTitleEl = bar.createEl("h1", { cls: "pi-chat-title", text: "pi" });
+    // Double-click (fires for mobile double-tap too) → rename the open
+    // session inline, file-explorer style.
+    this.registerDomEvent(this.sessionTitleEl, "dblclick", () => this.beginTitleRename());
     this.barStatusEl = bar.createDiv({ cls: "pi-chat-status" });
     this.barSizeEl = bar.createDiv({ cls: "pi-chat-size" });
 
@@ -687,7 +696,18 @@ export class ChatView extends ItemView {
     const loadSettled = this.prevLoadingForScroll && !s.loading;
     this.prevSessionIdForScroll = s.sessionId;
     this.prevLoadingForScroll = s.loading;
-    if (sessionChanged || loadSettled) this.pendingScrollToBottom = true;
+    if (sessionChanged || loadSettled) {
+      this.pinBottomUntil = Date.now() + 1400;
+      // Timed passes cover growth that happens without React commits (async
+      // markdown rendering mutates the DOM directly).
+      for (const ms of [150, 400, 800, 1300]) {
+        setTimeout(() => {
+          if (Date.now() <= this.pinBottomUntil) {
+            this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+          }
+        }, ms);
+      }
+    }
 
     // pi-web's MessageView components render the grouped units (see
     // react/Transcript.tsx + views/message-display.ts).
@@ -703,9 +723,9 @@ export class ChatView extends ItemView {
       onEditContent: (content: string) => this.insertIntoComposer(content),
       onRendered: () => {
         // Fires after React commits — the only moment scrollHeight is real.
-        if (!this.pendingScrollToBottom) return;
-        this.pendingScrollToBottom = false;
-        this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+        if (Date.now() <= this.pinBottomUntil) {
+          this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+        }
       },
     });
 
@@ -732,11 +752,58 @@ export class ChatView extends ItemView {
   }
 
   private updateTitle(name: string | undefined): void {
+    // While the inline rename input is open it owns the title — a store
+    // update must not stomp it (the input keeps whatever the user typed).
+    if (this.renameInputEl) return;
     const s = this.store.state;
     const title =
       s.sessionName ||
       s.firstMessage.slice(0, 60) ||
       (this.pendingCwd ? `new session · ${this.pendingCwd}` : "new session");
     this.sessionTitleEl.setText(name || title);
+  }
+
+  /** Title-bar double-click → inline rename of the OPEN session: same input
+   *  and Enter/blur/Escape semantics as the panel's session rows; commits via
+   *  the store, which renames the active session and updates its own
+   *  sessionName (→ render() repaints the new title once the input closes). */
+  private beginTitleRename(): void {
+    if (this.renameInputEl) return;
+    const store = this.store;
+    if (!store?.state.sessionId) return; // nothing open to rename
+    // Pin the session the rename started for: a session switch under the
+    // input must not rename the session that took over the tab.
+    const sid = store.state.sessionId;
+    const title = this.sessionTitleEl;
+    const initial = title.textContent ?? "";
+    title.empty();
+    const input = title.createEl("input", { cls: "pi-session-rename", value: initial });
+    this.renameInputEl = input;
+    let finished = false;
+    const finish = (commit: boolean): void => {
+      if (finished) return;
+      finished = true;
+      const value = input.value.trim();
+      this.renameInputEl = null; // updateTitle() may paint again
+      title.setText(initial); // restore the old title while the store round-trips
+      if (commit && value && value !== initial && store.state.sessionId === sid) {
+        void store.renameSession(value);
+      }
+    };
+    input.addEventListener("keydown", (ev) => {
+      ev.stopPropagation();
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        finish(true);
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("click", (ev) => ev.stopPropagation());
+    input.addEventListener("dblclick", (ev) => ev.stopPropagation());
+    input.addEventListener("blur", () => finish(true));
+    input.focus();
+    input.select();
   }
 }

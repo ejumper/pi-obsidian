@@ -23,6 +23,24 @@ import type {
 const MAX_THINKING_CACHE_ENTRIES = 100;
 const thinkingContentCache = new Map<string, Promise<string>>();
 
+/** Accidental-tap guard: buttons become visible immediately on hover/tap but
+ *  only become PRESSABLE after a short buffer — enough to defuse a quick
+ *  double tap (e.g. tapping to dismiss the keyboard then hitting a button). */
+function useArmed(visible: boolean, ms = 350): boolean {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!visible) {
+      setArmed(false);
+      return;
+    }
+    setArmed(false);
+    const t = setTimeout(() => setArmed(true), ms);
+    return () => clearTimeout(t);
+  }, [visible, ms]);
+  return armed;
+}
+/* pi-obsidian divergence (0.4.6 accidental-tap guard) */
+
 function loadThinkingContent(sessionId: string, entryId: string, blockIndex: number): Promise<string> {
   const key = `${sessionId}:${entryId}:${blockIndex}`;
   const cached = thinkingContentCache.get(key);
@@ -149,6 +167,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 }) {
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const armed = useArmed(hovered || !!revealActions); /* pi-obsidian divergence (0.4.6) */
 
   const content =
     typeof message.content === "string"
@@ -233,7 +252,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           <div style={{
             display: "flex", gap: 3,
             opacity: (hovered || revealActions) ? 1 : 0, // pi-obsidian divergence:
-            pointerEvents: (hovered || revealActions) ? "auto" : "none", // pi-obsidian divergence:
+            pointerEvents: armed ? "auto" : "none", /* pi-obsidian divergence (0.4.6) */ // pi-obsidian divergence:
             transition: "opacity 0.12s",
           }}>
             <button
@@ -270,7 +289,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             <div style={{
               display: "flex", gap: 3,
               opacity: (hovered || revealActions || forking) ? 1 : 0, // pi-obsidian divergence:
-              pointerEvents: (hovered || revealActions || forking) ? "auto" : "none", // pi-obsidian divergence:
+              pointerEvents: armed || forking ? "auto" : "none", /* pi-obsidian divergence (0.4.6) */ // pi-obsidian divergence:
               transition: "opacity 0.12s",
             }}>
               {canNavigate && (
@@ -365,6 +384,7 @@ function AssistantMessageView({
   const blocks = blockItems.map(({ block }) => block);
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const armed = useArmed(hovered); /* pi-obsidian divergence (0.4.6) */
   const streamStartRef = useRef<number | null>(null);
   const [tps, setTps] = useState<number | null>(null);
   const blockItemsRef = useRef(blockItems);
@@ -665,7 +685,7 @@ function AssistantMessageView({
               fontSize: 11, fontWeight: 400,
               whiteSpace: "nowrap",
               opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? "auto" : "none",
+              pointerEvents: armed ? "auto" : "none", /* pi-obsidian divergence (0.4.6) */
               transition: "opacity 0.12s, color 0.12s",
             }}
             onMouseEnter={(e) => { if (!copied) e.currentTarget.style.color = "var(--accent)"; }}

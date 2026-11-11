@@ -174,4 +174,20 @@ export class PiClient {
   getState(sessionId: string): Promise<AgentStateResponse> {
     return this.request(`/api/agent/${encodeURIComponent(sessionId)}`);
   }
+
+  /** PATCH /api/sessions/:id — rename a session ({name}). */
+  renameSession(sessionId: string, name: string): Promise<void> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  /** DELETE /api/sessions/:id — delete a session. */
+  deleteSession(sessionId: string): Promise<void> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    });
+  }
 }

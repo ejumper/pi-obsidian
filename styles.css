@@ -445,6 +445,18 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   white-space: nowrap;
 }
 
+/* Inline rename input (file-explorer style) — panel session rows and the
+   chat title bar's double-click rename. */
+.pi-session-rename {
+  width: 100%;
+  font-family: inherit;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  background: transparent;
+  border: 1px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+}
+
 /* empty state + skeletons aren't actionable */
 .pi-session-empty,
 .pi-session-skeleton {
