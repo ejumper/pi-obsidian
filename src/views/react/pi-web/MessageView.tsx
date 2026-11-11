@@ -623,7 +623,7 @@ function AssistantMessageView({
                     {est}
                   </span>
                   {tps !== null && (() => {
-                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
+                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#00993a" : tps >= 15 ? "#f9c22e" : "#a8001c";
                     return (
                       <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
                         {tps.toFixed(1)} t/s
@@ -851,7 +851,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
         overflow: "hidden",
         fontSize: 12,
         border: "none", /* pi-obsidian divergence (0.4.3 theme restyle) */
-        background: isError ? "#c62828" : "#00993a", /* pi-obsidian divergence (0.4.3 theme restyle) */
+        background: isError ? "#a8001c" : "#00993a", /* pi-obsidian divergence (0.4.3 theme restyle) */
       }}
     >
       {/* ── Tool call header ── */}

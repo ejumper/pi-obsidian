@@ -156,14 +156,23 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   /* explicit look — iOS UA textarea styling otherwise leaks in */
   appearance: none;
   -webkit-appearance: none;
-  background: var(--background-modifier-hover);
-  border: none;
+  /* !important: Obsidian's global form-control styling (and the iOS UA's)
+     wins the cascade on textarea background/border at focus — the input must
+     match the button row's grey in every state (0.4.4). */
+  background: var(--background-modifier-hover) !important;
+  border: none !important;
+  box-shadow: none;
   border-radius: var(--radius-m);
   padding: 6px 10px;
 }
 
-.pi-chat-input:hover {
-  background: var(--background-modifier-hover);
+.pi-chat-input:hover,
+.pi-chat-input:focus,
+.pi-chat-input:focus-visible {
+  background: var(--background-modifier-hover) !important;
+  border: none !important;
+  outline: none;
+  box-shadow: none;
 }
 
 .pi-chat-row {
@@ -931,19 +940,20 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   flex-shrink: 0;
   border: none;
   box-shadow: none;
-  background: transparent;
+  /* !important: the app's global button fill leaks behind the icon otherwise */
+  background: none !important;
   color: var(--text-error);
   cursor: pointer;
-  padding: 0 2px;
+  padding: 3px 5px;
   appearance: none;
   -webkit-appearance: none;
-  font-size: 16px;
+  font-size: 20px;
   line-height: 1;
 }
 
 .pi-attach-chip-x svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
 }
 
 .pi-attach-chip-x:hover {
@@ -1153,7 +1163,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   align-items: center;
   border: none;
   box-shadow: none;
-  background: transparent;
+  background: none !important; /* same global button leak as .pi-attach-chip-x */
   color: var(--text-muted);
   cursor: pointer;
   padding: 2px;
