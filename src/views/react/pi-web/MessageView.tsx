@@ -818,7 +818,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
           gap: 6,
           width: "100%",
           padding: "4px 8px",
-          background: "var(--background-modifier-hover)", /* pi-obsidian divergence (0.4.7: same gray as the composer buttons) */
+          background: "#343434", /* pi-obsidian divergence (0.4.9: literal — theme hover var is translucent) */
           border: "none",
           color: "var(--text-muted)",
           cursor: "pointer",
@@ -839,7 +839,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
             fontSize: 12,
             lineHeight: 1.6,
             whiteSpace: "pre-wrap",
-            background: "var(--background-modifier-hover)", /* pi-obsidian divergence (0.4.7: same gray as the composer buttons) */
+            background: "#343434", /* pi-obsidian divergence (0.4.9: literal — theme hover var is translucent) */
             borderTop: "1px solid var(--border)",
           }}
         >
