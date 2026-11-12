@@ -279,7 +279,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   border: none;
   box-shadow: none;
   border-radius: var(--pill-radius);
-  background: var(--color-red) !important; /* 0.4.10: same global button-fill leak */
+  background: #A8001C !important; /* 0.4.10: same global button-fill leak */
   color: var(--text-on-accent);
   font-size: var(--font-ui-small);
   font-weight: var(--font-semibold);
