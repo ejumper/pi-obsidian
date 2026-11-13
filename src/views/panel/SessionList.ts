@@ -97,6 +97,35 @@ export class SessionList {
   }
 
   /** Placeholder state: pulsing skeleton rows while the list loads. */
+  /** id → row/title for in-place marker toggling */
+  private rows = new Map<string, { row: HTMLElement; title: HTMLElement }>();
+
+  // ---------- live running markers (0.4.12) ----------
+
+  /** Toggle run markers on existing rows in place — never rebuild the list,
+   *  so live run state can't clobber renames, scroll, or the user's place. */
+  setRunningIds(ids: Iterable<string>): void {
+    const running = new Set(ids);
+    for (const [id, entry] of this.rows) {
+      if (!entry.row.isConnected) {
+        this.rows.delete(id);
+        continue;
+      }
+      this.applyRunning(entry, running.has(id));
+    }
+  }
+
+  private applyRunning(entry: { row: HTMLElement }, on: boolean): void {
+    entry.row.toggleClass("is-running", on);
+    const existing = entry.row.querySelector(":scope > .pi-session-running");
+    if (on && !existing) {
+      const spin = entry.row.createSpan({ cls: "pi-session-running" });
+      setIcon(spin, "loader-circle");
+    } else if (!on && existing) {
+      existing.remove();
+    }
+  }
+
   setLoading(): void {
     this.el.empty();
     for (let i = 0; i < SKELETON_ROWS; i++) {
@@ -108,6 +137,7 @@ export class SessionList {
 
   setSessions(sessions: SessionInfo[], runningIds: string[]): void {
     this.el.empty();
+    this.rows.clear();
     if (sessions.length === 0) {
       this.el.createDiv({ cls: "pi-session-row pi-session-empty", text: "No sessions" });
       return;
@@ -123,11 +153,8 @@ export class SessionList {
         cls: "pi-session-title",
         text: display,
       });
-      if (running.has(session.id)) {
-        const spin = title.createSpan({ cls: "pi-session-running" });
-        setIcon(spin, "loader-circle");
-        row.addClass("is-running");
-      }
+      this.rows.set(session.id, { row, title });
+      this.applyRunning({ row }, running.has(session.id));
       row.createDiv({
         cls: "pi-session-meta",
         text: `${session.id.slice(0, 8)} · ${formatModified(session.modified)} · ${session.cwd}`,

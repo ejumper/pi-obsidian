@@ -804,7 +804,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
     <div
       style={{
         border: "none", /* pi-obsidian divergence (0.4.3 theme restyle) */
-        borderRadius: 7,
+        borderRadius: 12, /* pi-obsidian divergence (0.4.12: match user message radius) */
         overflow: "hidden",
         fontSize: 13,
       }}
@@ -840,7 +840,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
             lineHeight: 1.6,
             whiteSpace: "pre-wrap",
             background: "#343434", /* pi-obsidian divergence (0.4.9: literal — theme hover var is translucent) */
-            borderTop: "1px solid var(--border)",
+            borderTop: "1px solid #4a4a4a", /* pi-obsidian divergence (0.4.12: lightened — var(--border) was invisible on #343434) */
           }}
         >
           {loading ? "Loading thinking..." : error ?? (block.deferred ? content : block.thinking)}
@@ -867,7 +867,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
   return (
     <div
       style={{
-        borderRadius: 7,
+        borderRadius: 12, /* pi-obsidian divergence (0.4.12: match user message radius) */
         overflow: "hidden",
         fontSize: 12,
         border: "none", /* pi-obsidian divergence (0.4.3 theme restyle) */

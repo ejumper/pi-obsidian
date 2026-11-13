@@ -28,6 +28,8 @@ export interface TranscriptData {
   /** This tab's machine base URL — the React subtree's api shim is a module
    *  global, so it is re-pointed on every render pass (Phase 13). */
   apiBase?: string;
+  /** Run-ending error shown as red session output (0.4.12) */
+  runError?: string | null;
 }
 
 /** pi-web's rule: only the LAST assistant message of a turn shows the
@@ -76,7 +78,7 @@ function computePrevAssistantEntryIds(units: TranscriptUnit[]): Map<TranscriptUn
   return prev;
 }
 
-function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered }: TranscriptData) {
+function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError }: TranscriptData) {
   const showTs = computeShowTimestamps(units);
   // No dep array: fires after every commit. A plain rAF scroll races React's
   // async commit on big session swaps (the transcript still held the old DOM
@@ -178,6 +180,13 @@ function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, 
           onEditContent={onEditContent}
           forking={false}
         />
+      )}
+      {runError && (
+        /* pi-obsidian divergence (0.4.12): run-ending errors render as session
+           output — like a model reply but in red text (pi TUI parity) */
+        <div style={{ color: "var(--text-error)", fontSize: 13, lineHeight: 1.65, marginBottom: 16, whiteSpace: "pre-wrap" }}>
+          Error: {runError}
+        </div>
       )}
     </div>
   );

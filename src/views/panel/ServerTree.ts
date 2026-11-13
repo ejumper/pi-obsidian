@@ -169,6 +169,7 @@ export class ServerTree {
   private readonly deleteSession: ServerTreeOptions["deleteSession"];
   private readonly onSessionsChanged: ServerTreeOptions["onSessionsChanged"];
   private readonly runningIds: ServerTreeOptions["runningIds"];
+  private sessionRows = new Map<string, HTMLElement>();
 
   private rootPath: string;
   /** dir path → listDir result; cleared by setRoot()/refresh(). */
@@ -365,6 +366,29 @@ export class ServerTree {
   }
 
   /** Identical markup to the Recent list rows (same .pi-session-* classes). */
+  /** Toggle run markers on existing rows in place (0.4.12) — no rebuild. */
+  setRunningIds(ids: Iterable<string>): void {
+    const running = new Set(ids);
+    for (const [id, row] of this.sessionRows) {
+      if (!row.isConnected) {
+        this.sessionRows.delete(id);
+        continue;
+      }
+      this.applyRunning(row, running.has(id));
+    }
+  }
+
+  private applyRunning(row: HTMLElement, on: boolean): void {
+    row.toggleClass("is-running", on);
+    const existing = row.querySelector(":scope > .pi-session-running");
+    if (on && !existing) {
+      const spin = row.createSpan({ cls: "pi-session-running" });
+      setIcon(spin, "loader-circle");
+    } else if (!on && existing) {
+      existing.remove();
+    }
+  }
+
   private appendSessionRow(parent: HTMLElement, session: SessionInfo, runningIds: Set<string>): void {
     const row = parent.createDiv({
       cls: "pi-session-row",
@@ -375,11 +399,8 @@ export class ServerTree {
       cls: "pi-session-title",
       text: display,
     });
-    if (runningIds.has(session.id)) {
-      const spin = title.createSpan({ cls: "pi-session-running" });
-        setIcon(spin, "loader-circle");
-        row.addClass("is-running");
-    }
+    this.sessionRows.set(session.id, row);
+    this.applyRunning(row, runningIds.has(session.id));
     row.createDiv({
       cls: "pi-session-meta",
       text: `${session.id.slice(0, 8)} · ${formatModified(session.modified)} · ${session.cwd}`,

@@ -72,6 +72,8 @@ export interface StoreState {
   sessionId: string | null;
   loading: boolean;
   error: string | null;
+  /** Run-ending error, rendered as red session output (0.4.12, pi TUI parity) */
+  runError: string | null;
   /** Session is owned by a running terminal pi (live-bridge) — read-only tail. */
   live: boolean;
   cwd: string;
@@ -219,6 +221,7 @@ export class AgentStore {
     sessionId: null,
     loading: false,
     error: null,
+      runError: null,
     live: false,
     cwd: "",
     filePath: "",
@@ -302,6 +305,7 @@ export class AgentStore {
       sessionId: id,
       loading: true,
       error: null,
+      runError: null,
       messages: [],
       entryIds: [],
       streamingMessage: null,
@@ -370,6 +374,7 @@ export class AgentStore {
       sessionId: null,
       loading: false,
       error: null,
+      runError: null,
       live: false,
       cwd: "",
       filePath: "",
@@ -445,7 +450,7 @@ export class AgentStore {
 
     const userMsg = this.appendOptimisticUser(trimmed, images);
     ++this.runId;
-    this.update({ agentRunning: true, agentPhase: { kind: "waiting_model" } });
+    this.update({ agentRunning: true, agentPhase: { kind: "waiting_model" }, runError: null });
 
     try {
       await this.ensureConnected(sid);
@@ -456,7 +461,7 @@ export class AgentStore {
       });
     } catch (e) {
       this.rollbackOptimisticUser(userMsg);
-      this.update({ agentRunning: false, agentPhase: null, streamingMessage: null });
+      this.update({ agentRunning: false, agentPhase: null, streamingMessage: null, runError: e instanceof Error ? e.message : String(e) });
       this.hooks.onNotice?.(`Message not sent — ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
@@ -806,10 +811,17 @@ export class AgentStore {
         void this.refreshAgentState();
         break;
 
-      case "prompt_error":
-        this.hooks.onNotice?.(
-          (ev as { errorMessage?: string }).errorMessage ?? "Command failed", "error");
+      case "prompt_error": {
+        // pi-obsidian divergence (0.4.12): run-ending errors render as red
+        // session output (pi TUI parity) and must clear the running state —
+        // the old toast vanished and left a dead run looking alive.
+        const msg = (ev as { errorMessage?: string }).errorMessage ?? "Command failed";
+        if (this.state.agentRunning) this.finishRun();
+        this.update({ runError: msg });
+        void this.refreshFromDisk();
+        void this.refreshAgentState();
         break;
+      }
 
       case "extension_error": {
         const e = ev as { extensionPath?: string; event?: string; error?: string };

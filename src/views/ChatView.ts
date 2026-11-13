@@ -718,6 +718,7 @@ export class ChatView extends ItemView {
       modelNames: this.modelNames,
       cwd: s.cwd,
       sessionId: s.sessionId ?? undefined,
+      runError: s.runError,
       apiBase: this.plugin.getClient(this.instanceId).baseUrl,
       onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
       onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },

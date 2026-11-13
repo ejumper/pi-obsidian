@@ -333,6 +333,9 @@ export class PanelView extends ItemView {
       );
       this.sessionsSnapshot = sessions;
       this.runningSnapshot = res.runningSessionIds ?? [];
+      // The list is BUILT here (0.4.12) — renderRunning() only patches markers
+      // onto existing rows from here on.
+      this.list.setSessions(sessions, [...this.runningIdsUnion()]);
       this.renderRunning();
       this.watchActiveStore();
       // The fetch's running set is only a fallback — the live feed owns it
@@ -344,17 +347,24 @@ export class PanelView extends ItemView {
     }
   }
 
-  /** Render the lists with the union of the server's running set and the
-   *  focused tab's own run state — the local store is an instant, authoritative
-   *  signal for the session the user is looking at, independent of the feed. */
-  private renderRunning(): void {
+  /** Union of the server's running set and the focused tab's own run state —
+   *  the local store is an instant, authoritative signal for the session the
+   *  user is looking at, independent of the feed. */
+  private runningIdsUnion(): Set<string> {
     const ids = new Set(this.runningSnapshot);
     const store = this.plugin.getActiveStore();
     if (store?.state.agentRunning && store.state.sessionId) {
       ids.add(store.state.sessionId);
     }
-    this.list.setSessions(this.sessionsSnapshot, [...ids]);
-    this.tree?.refresh();
+    return ids;
+  }
+
+  /** Patch running markers onto existing rows (0.4.12) — no rebuild, so live
+   *  run state can't clobber renames, scroll, or folder collapse state. */
+  private renderRunning(): void {
+    const ids = this.runningIdsUnion();
+    this.list.setRunningIds(ids);
+    this.tree?.setRunningIds(ids);
   }
 
   /** Re-render when the focused tab's run state flips (send → running, done). */

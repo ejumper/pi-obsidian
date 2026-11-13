@@ -61,10 +61,26 @@ export class FakeElement {
   appendChild(child) { this.children.push(child); return child; }
   replaceChildren(...nodes) { this.children = [...nodes]; }
   remove() {}
+  get isConnected() { return true; }
   focus() {}
   scrollIntoView() {}
   getBoundingClientRect() { return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }; }
-  querySelector() { return new FakeElement("span"); }
+  querySelector(sel) {
+    // Real-ish: class selector match, ":scope > " = direct children only.
+    const m = String(sel).match(/\.([\w-]+)/);
+    const cls = m ? m[1] : null;
+    const direct = String(sel).startsWith(":scope > ");
+    const pool = [];
+    const collect = (el) => {
+      for (const c of el.children ?? []) {
+        pool.push(c);
+        if (!direct) collect(c);
+      }
+    };
+    collect(this);
+    if (!cls) return pool[0] ?? null;
+    return pool.find((el) => el.classes?.has(cls)) ?? null;
+  }
   querySelectorAll() { return []; }
   closest() { return null; }
 }

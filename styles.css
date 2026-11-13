@@ -391,6 +391,7 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 }
 
 .pi-session-row {
+  position: relative; /* anchor for the running spinner */
   padding: 6px 8px;
   margin-bottom: 2px;
   border-radius: var(--radius-s);
@@ -414,9 +415,20 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 }
 
 .pi-session-running {
+  /* 0.4.12: far right edge of the row, centered across the name+info block —
+     was inline in the title row, sticking up above it. */
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--text-accent);
   display: inline-flex;
   align-items: center;
+}
+
+.pi-session-row.is-running .pi-session-title,
+.pi-session-row.is-running .pi-session-meta {
+  padding-right: 24px; /* keep clear of the running spinner */
 }
 
 .pi-session-running svg {
