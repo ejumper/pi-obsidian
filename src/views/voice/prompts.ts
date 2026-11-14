@@ -11,6 +11,9 @@ import exitFallback from "./prompts/voice-exit.md";
 /** Minimal slice of Obsidian's DataAdapter this needs — keeps the loader testable. */
 export interface VoicePromptReader {
   read(path: string): Promise<string>;
+  /** Optional: seeds missing prompt files on first run (BRAT installs only
+   *  main.js/manifest/styles — the .md files bootstrap themselves). */
+  write?(path: string, data: string): Promise<void>;
 }
 
 export interface VoicePrompts {
@@ -27,23 +30,34 @@ export function parsePromptFile(raw: string, fallback: string): string {
   return trimmed.length > 0 ? trimmed : fallback;
 }
 
+/** Compiled-in copies (esbuild text import), parsed down to model-visible text. */
+const ENTER_COMPILED = parsePromptFile(enterFallback, enterFallback.trim());
+const EXIT_COMPILED = parsePromptFile(exitFallback, exitFallback.trim());
+
 export async function loadVoicePrompts(
   reader: VoicePromptReader | undefined,
   pluginDir: string | undefined,
 ): Promise<VoicePrompts> {
-  const readOne = async (name: string, fallback: string): Promise<string> => {
+  const readOne = async (name: string, compiled: string, raw: string): Promise<string> => {
     if (reader && pluginDir) {
+      const path = `${pluginDir}/prompts/${name}`;
       try {
-        return parsePromptFile(await reader.read(`${pluginDir}/prompts/${name}`), fallback);
+        return parsePromptFile(await reader.read(path), compiled);
       } catch {
-        // missing file or unreadable — compiled fallback
+        // Missing (BRAT installs only main.js/manifest/styles) — seed it from the
+        // compiled copy so the file exists and is tunable on this device.
+        try {
+          await reader.write?.(path, raw);
+        } catch {
+          // seeding is best-effort — the compiled copy still serves
+        }
       }
     }
-    return fallback;
+    return compiled;
   };
   return {
-    enter: await readOne("voice-enter.md", enterFallback.trim()),
-    exit: await readOne("voice-exit.md", exitFallback.trim()),
+    enter: await readOne("voice-enter.md", ENTER_COMPILED, enterFallback),
+    exit: await readOne("voice-exit.md", EXIT_COMPILED, exitFallback),
   };
 }
 
