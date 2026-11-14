@@ -138,6 +138,7 @@ export class ChatView extends ItemView {
       this.updateVoiceDebug();
       // Stacking probe: what element is physically on top of the pane's center.
       requestAnimationFrame(() => {
+        this.voiceOverlay?.syncPosition();
         const el = this.voiceOverlay?.el;
         if (!el) return;
         const r = el.getBoundingClientRect();
@@ -311,6 +312,7 @@ export class ChatView extends ItemView {
       this.geometryTimer = setInterval(() => {
         const rect = this.contentEl.getBoundingClientRect();
         const shown = this.containerEl.isShown();
+        this.voiceOverlay?.syncPosition();
         // Visibility transition = the user switched to this pi tab → it is the
         // panel's target now. Only on the edge (false→true) so two pi panes
         // open side by side on desktop never flip-flop.

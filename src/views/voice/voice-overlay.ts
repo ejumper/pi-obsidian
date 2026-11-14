@@ -83,8 +83,9 @@ export class VoiceOverlay {
   private readonly countdownEl: HTMLElement;
   private readonly stopEl: HTMLElement;
   private readonly renderer: TranscriptRenderer;
-  /** Container's inline position before we made it the pane's containing block. */
-  private readonly prevContainerPosition: string;
+  /** Container's viewport rect is re-read by syncPosition() — the pane is a
+   *  body-attached fixed layer (the composer's pattern), not a child of the
+   *  scroll container. */
 
   // ---- gesture tracking (one active pointer) ----
   private pointerId: number | null = null;
@@ -138,13 +139,9 @@ export class VoiceOverlay {
     this.countdownEl = countdown;
     this.stopEl = stop;
 
-    // ---- containment: pane covers the container exactly ----
-    const container = opts.container;
-    this.prevContainerPosition = container.style.position;
-    const pos = getComputedStyle(container).position;
-    if (pos === "static" || pos === "") container.style.position = "relative";
-    container.prepend(pane);
-    container.addEventListener("scroll", this.onContainerScroll);
+    // ---- containment: body-attached fixed layer pinned to the container's
+    // viewport rect (the composer's pattern — see syncPosition()). ----
+    document.body.appendChild(pane);
     this.syncPosition();
 
     // ---- gestures: pointerdown on the surface, move/up/cancel on WINDOW.
@@ -222,8 +219,6 @@ export class VoiceOverlay {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    const container = this.opts.container;
-    container.removeEventListener("scroll", this.onContainerScroll);
     this.gesturesEl.removeEventListener("pointerdown", this.onPointerDown);
     window.removeEventListener("pointermove", this.onPointerMove);
     window.removeEventListener("pointerup", this.onPointerUp);
@@ -234,23 +229,24 @@ export class VoiceOverlay {
     this.tapTimer = null;
     this.renderer.unmount();
     this.el.remove();
-    container.style.position = this.prevContainerPosition;
   }
 
   // ------------------------------------------------------------------ geometry
 
   /** The abspos pane sits at the content origin of the scroll container —
    *  mirror the scroll so it keeps covering the visible area. */
-  private readonly onContainerScroll = (): void => this.syncPosition();
 
-  private syncPosition(): void {
-    // The pane is an abspos child of the transcript's SCROLL container, so it
-    // rides the content: counter BOTH scroll axes in viewport terms. (beta5:
-    // a horizontal content pan once slid the pane clean off-screen — see the
-    // beta4 debug readout: pane@-133 with touches falling through underneath.)
-    const { scrollTop, scrollLeft } = this.opts.container;
-    this.el.style.transform =
-      scrollTop || scrollLeft ? `translate(${scrollLeft}px, ${scrollTop}px)` : "";
+  /** Body-attached + fixed, geometry driven from the transcript's viewport rect
+   *  — the composer's proven pattern (ChatView's geometry timer calls this).
+   *  beta6: abspos inside the scroll container kept inheriting ancestor
+   *  scroll/offset weirdness (pane@-133 on iOS, twice) — this sidesteps the
+   *  entire class of problem. */
+  syncPosition(): void {
+    const r = this.opts.container.getBoundingClientRect();
+    this.el.style.left = `${Math.round(r.left)}px`;
+    this.el.style.top = `${Math.round(r.top)}px`;
+    this.el.style.width = `${Math.round(r.width)}px`;
+    this.el.style.height = `${Math.round(r.height)}px`;
   }
 
   // ------------------------------------------------------------------ gestures

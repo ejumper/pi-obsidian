@@ -1237,8 +1237,10 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 }
 
 .pi-voice-pane {
-  position: absolute;
-  inset: 0;
+  /* body-attached + fixed, geometry driven (beta6) — the composer's proven
+     anchoring pattern; abspos inside the scroll container inherited ancestor
+     offset weirdness on iOS (pane@-133, twice). */
+  position: fixed;
   z-index: 50;
   /* clips the oversized glow box so it never grows the transcript's scroll area */
   overflow: hidden;
