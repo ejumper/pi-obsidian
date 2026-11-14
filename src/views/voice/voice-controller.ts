@@ -34,6 +34,12 @@ export interface VoiceControllerOptions {
   /** Overlay repaint hook: glow phase + countdown seconds (null = hidden). */
   onUi?: (phase: VoiceGlowPhase, countdown: number | null) => void;
   onNotice?: (message: string) => void;
+  /** Send a prompt through the composer's session path — creates the session
+   *  when none exists (the store's sendPrompt silently no-ops on a session-less
+   *  tab) and queues while a run is active (typing parity). */
+  sendText: (text: string) => Promise<void>;
+  /** Abort the running agent (STOP button / countdown). */
+  abortRun: () => Promise<void>;
 }
 
 /** Plain text of a message: string content or concatenated text blocks. */
@@ -141,7 +147,7 @@ export class VoiceController {
 
   /** Visible STOP button (beta3): abort the run — the hold gesture now records. */
   stopRun(): void {
-    void this.opts.store.abort();
+    void this.opts.abortRun();
   }
 
   destroy(): void {
@@ -218,9 +224,7 @@ export class VoiceController {
     if (!text) return;
     this.session.mode = "voice";
     const wrapped = this.session.wrapOutgoing(text);
-    const store = this.opts.store;
-    if (store.state.agentRunning) await store.queuePrompt(wrapped, "followUp");
-    else await store.sendPrompt(wrapped);
+    await this.opts.sendText(wrapped);
   }
 
   /**

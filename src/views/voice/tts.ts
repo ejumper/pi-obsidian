@@ -328,9 +328,16 @@ async function request(url: string, init: RequestInit, what: string): Promise<Re
 }
 
 /** POST one chunk to the speech endpoint; returns wav bytes (RIFF-guarded, see below). */
+const TTS_PATH = "/v1/audio/speech";
+
 async function synthesizeWav(endpoint: string, text: string): Promise<Blob> {
+  // Accept the base URL (settings default) or the full endpoint — stt.ts's
+  // normalization pattern. (beta13: posting the bare base gave piper 404s.)
+  const url = endpoint.endsWith(TTS_PATH)
+    ? endpoint
+    : `${endpoint.replace(/\/+$/, "")}${TTS_PATH}`;
   const res = await request(
-    endpoint,
+    url,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

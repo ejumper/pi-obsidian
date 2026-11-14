@@ -128,6 +128,35 @@ export class ChatView extends ItemView {
   /** Build the voice controller + overlay after the DOM exists. Eager so the
    *  banner machine wraps EVERY send — a typed prompt after a voice turn must
    *  announce "voice mode off" even if this tab never opened voice mode. */
+  /** Voice-mode send: the composer's session logic without the composer bits.
+   *  Creates the session when none exists (the store's sendPrompt silently
+   *  no-ops on a session-less tab — beta13's new-session bug), queues while a
+   *  run is active (typing parity), else prompts. */
+  private async voiceSendText(text: string): Promise<void> {
+    const s = this.store.state;
+    if (!s.sessionId) {
+      let cwd = this.pendingCwd;
+      if (!cwd) {
+        try {
+          cwd = await this.plugin.resolveNewSessionCwd(this.instanceId);
+        } catch {
+          // chain resolution failed — same fallback as the composer: give up
+        }
+      }
+      if (!cwd) {
+        new Notice("pi: could not resolve a working directory for a new session");
+        return;
+      }
+      this.pendingCwd = null;
+      void this.store.startNewSession(cwd, text, undefined, {
+        model: this.plugin.settings.defaultModel ?? undefined,
+      });
+      return;
+    }
+    if (s.agentRunning) await this.store.queuePrompt(text, "followUp");
+    else await this.store.sendPrompt(text);
+  }
+
   private async initVoice(): Promise<void> {
     try {
       const prompts = await loadVoicePrompts(
@@ -146,6 +175,8 @@ export class ChatView extends ItemView {
         onNotice: (message) => {
           new Notice(`pi: ${message}`, 6000);
         },
+        sendText: (t: string) => this.voiceSendText(t),
+        abortRun: () => this.store.abort(),
       });
       this.voiceOverlay = new VoiceOverlay({
         handlers: {
