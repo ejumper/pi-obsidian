@@ -1272,7 +1272,14 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* Hidden by default (beta20): the layer is body-level and must never show
+     outside voice mode — a call-order-dependent hide missed the initial state. */
+  display: none;
   --pi-voice-glow-radius: 0px;
+}
+
+.pi-voice-glow.pi-voice-visible {
+  display: block;
 }
 
 /* Siri-style screen-edge frame (beta17): on mobile the glow hugs the display
