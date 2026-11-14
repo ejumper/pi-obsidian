@@ -62,7 +62,9 @@ const GLOW_PHASES: readonly VoiceGlowPhase[] = [
   "idle",
   "recording",
   "recording_paused",
+  "connecting",
   "working",
+  "synthesizing",
   "playing",
   "playing_paused",
 ];
@@ -196,8 +198,14 @@ export class VoiceOverlay {
   setPhase(phase: VoiceGlowPhase): void {
     for (const p of GLOW_PHASES) this.el.classList.remove(`pi-voice-phase-${p}`);
     this.el.classList.add(`pi-voice-phase-${phase}`);
-    // The STOP button only exists while the agent runs (hold records now).
-    this.stopEl.style.display = phase === "working" ? "" : "none";
+    // chat-parity: connecting/synthesis trail the traveling arc around the border
+    this.el.classList.toggle(
+      "pi-voice-glow-arc-on",
+      phase === "connecting" || phase === "synthesizing",
+    );
+    // The STOP button exists once a run is in flight (connecting included).
+    this.stopEl.style.display =
+      phase === "working" || phase === "connecting" ? "" : "none";
   }
 
   /** null hides; 3/2/1 shows "Stopping run in 3…". The controller ticks it —

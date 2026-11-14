@@ -59,6 +59,10 @@ export class VoiceController {
   private readonly tts: TtsPlayer;
   private readonly recorder: VoiceRecorder;
   private ui: VoiceUi = initialVoiceUi;
+  /** Transient glow phases (pi-voice-chat parity): connecting = transcribe+send
+   *  until the run starts; synthesizing = TTS working before playback. */
+  private connecting = false;
+  private synthesizing = false;
   private mode: "voice" | "normal" = "normal";
   private countdownTimer: number | null = null;
   private countdownLeft = 0;
@@ -74,6 +78,7 @@ export class VoiceController {
       url: opts.ttsUrl,
       onError: (m) => opts.onNotice?.(`Voice TTS — ${m}`),
       onStateChange: (st) => {
+        this.synthesizing = st === "synthesizing";
         if (st === "idle") this.ui = { ...this.ui, playback: "off" };
         else if (st === "paused") this.ui = { ...this.ui, playback: "paused" };
         else if (st === "playing") this.ui = { ...this.ui, playback: "on" };
@@ -108,6 +113,8 @@ export class VoiceController {
       // the panel tap is a user gesture, so getUserMedia is legal right here.
       void this.recorder.prime();
     } else {
+      this.connecting = false;
+      this.synthesizing = false;
       this.tts.stopAndFlush();
       this.recorder.discard();
       this.clearCountdown();
@@ -214,6 +221,7 @@ export class VoiceController {
   /** Record → STT → prompt (or queue when a run is active). */
   private async sendRecording(): Promise<void> {
     this.ui = { ...this.ui, recording: "off" };
+    this.connecting = true; // glow: arc until the run starts (transcribe + send)
     this.paint();
     let text = "";
     try {
@@ -244,6 +252,7 @@ export class VoiceController {
 
     if (s.agentRunning !== this.lastRunning) {
       this.lastRunning = s.agentRunning;
+      if (s.agentRunning) this.connecting = false;
       this.ui = reduceVoiceUi(this.ui, s.agentRunning ? "run_started" : "run_ended").ui;
     }
 
@@ -287,6 +296,13 @@ export class VoiceController {
   }
 
   private paint(): void {
-    this.opts.onUi?.(voicePhase(this.ui), this.countdownTimer !== null ? this.countdownLeft : null);
+    const base = voicePhase(this.ui);
+    // Transients fill the gaps the flags can't see (chat-parity phase table).
+    let phase: VoiceGlowPhase = base;
+    if (base === "idle" || base === "working") {
+      if (this.synthesizing) phase = "synthesizing";
+      else if (this.connecting) phase = "connecting";
+    }
+    this.opts.onUi?.(phase, this.countdownTimer !== null ? this.countdownLeft : null);
   }
 }

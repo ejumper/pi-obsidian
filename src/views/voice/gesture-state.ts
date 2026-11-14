@@ -126,7 +126,9 @@ export type VoiceGlowPhase =
   | "idle"
   | "recording"
   | "recording_paused"
+  | "connecting"
   | "working"
+  | "synthesizing"
   | "playing"
   | "playing_paused";
 
