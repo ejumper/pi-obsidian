@@ -132,16 +132,20 @@ export class VoiceOverlay {
 
     const glow = div("pi-voice-glow pi-voice-phase-idle");
     const edge = div("pi-voice-glow-edge");
-    const wide = div("pi-voice-glow-layer pi-voice-glow-layer--wide");
-    wide.append(div("pi-voice-glow-ring"));
-    const core = div("pi-voice-glow-layer pi-voice-glow-layer--core");
-    core.append(div("pi-voice-glow-ring"));
-    edge.append(wide, core);
-    const arc = div("pi-voice-glow-arc");
-    const arcLayer = div("pi-voice-glow-layer pi-voice-glow-layer--arc");
-    arcLayer.append(div("pi-voice-glow-ring"));
-    arc.append(arcLayer);
-    glow.append(edge, arc);
+    // LED-anatomy layers (port of glow-effect/*.html, 0.5.0): wash (far faint
+    // falloff), spill (short bright falloff), strip (the bulbs at the edge);
+    // wave is the chaser comet for connecting/synthesizing — the breath recipe
+    // hides it. Recipes and colors live in styles.css.
+    const washL = div("pi-voice-glow-layer pi-voice-glow-layer--wash");
+    washL.append(div("pi-voice-glow-ring"));
+    const spillL = div("pi-voice-glow-layer pi-voice-glow-layer--spill");
+    spillL.append(div("pi-voice-glow-ring"));
+    const stripL = div("pi-voice-glow-layer pi-voice-glow-layer--strip");
+    stripL.append(div("pi-voice-glow-ring"));
+    const waveL = div("pi-voice-glow-layer pi-voice-glow-layer--wave");
+    waveL.append(div("pi-voice-glow-ring"));
+    edge.append(washL, spillL, stripL, waveL);
+    glow.append(edge);
 
     const gestures = div("pi-voice-gestures");
     const msg = div("pi-voice-msg");
@@ -200,16 +204,16 @@ export class VoiceOverlay {
     if (on) this.syncPosition();
   }
 
-  /** Glow state machine: one `pi-voice-phase-<phase>` class on the pane; the
-   *  stylesheet carries the color × mode mapping (chat parity). */
+  /** Glow state machine: one `pi-voice-phase-<phase>` class on the glow layer
+   *  (color) plus a recipe class — breath (whole string) or chase (comet). */
   setPhase(phase: VoiceGlowPhase): void {
     for (const p of GLOW_PHASES) this.glowEl.classList.remove(`pi-voice-phase-${p}`);
     this.glowEl.classList.add(`pi-voice-phase-${phase}`);
-    // chat-parity: connecting/synthesis trail the traveling arc around the border
-    this.glowEl.classList.toggle(
-      "pi-voice-glow-arc-on",
-      phase === "connecting" || phase === "synthesizing",
-    );
+    // Recipe select: connecting/synthesizing run the traveling chaser; every
+    // other phase breathes the whole string (glow-effect/*.html port).
+    const chase = phase === "connecting" || phase === "synthesizing";
+    this.glowEl.classList.toggle("pi-voice-glow-chase", chase);
+    this.glowEl.classList.toggle("pi-voice-glow-breath", !chase);
     // The STOP button exists once a run is in flight (connecting included).
     this.stopEl.style.display =
       phase === "working" || phase === "connecting" ? "" : "none";
