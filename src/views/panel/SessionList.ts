@@ -9,6 +9,7 @@
 import { App, Menu, Notice, setIcon } from "obsidian";
 import { ConfirmModal } from "../confirm-modal";
 import type { SessionInfo } from "../../api/types";
+import { stripVoiceBlocks } from "../voice/banner-state";
 
 const TITLE_MAX_CHARS = 70;
 const SKELETON_ROWS = 5;
@@ -148,7 +149,7 @@ export class SessionList {
         cls: "pi-session-row",
         attr: { tabindex: "0", role: "button" },
       });
-      const display = (session.name || session.firstMessage || "(empty)").slice(0, TITLE_MAX_CHARS);
+      const display = stripVoiceBlocks(session.name || session.firstMessage || "(empty)").slice(0, TITLE_MAX_CHARS);
       const title = row.createDiv({
         cls: "pi-session-title",
         text: display,
@@ -245,7 +246,7 @@ export class SessionList {
           startInlineRename(
             row,
             title,
-            session.name || session.firstMessage || "(empty)",
+            stripVoiceBlocks(session.name || session.firstMessage || "(empty)"),
             (name) => void this.runAndRefresh(this.renameSession(session.id, name), "rename failed")
           )
         )
