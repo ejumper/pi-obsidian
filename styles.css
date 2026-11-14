@@ -1522,6 +1522,27 @@ body.is-mobile .pi-voice-glow {
 
 /* ── Countdown, last-message column, gesture surface ────────────────────── */
 
+/* Centered activity readout (0.5.1): what the agent is doing right now —
+   "thinking", "searching the web", … — shown only while something SPECIFIC is
+   active; the in-between run state is the glow's job (user spec). */
+.pi-voice-activity {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  pointer-events: none;
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-large);
+  text-align: center;
+}
+
+.pi-voice-activity.pi-voice-activity-on {
+  display: flex;
+}
+
 /* Centered stop-run countdown (controller ticks 3…2…1 while the pointer is
    down; the surface itself never completes anything — it reports long_release). */
 .pi-voice-countdown {

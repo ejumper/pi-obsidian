@@ -38,6 +38,8 @@ const {
   reduceVoiceUi,
   voicePhase,
   initialVoiceUi,
+  currentActivity,
+  toolActivity,
 } = bundle;
 
 // ---------------------------------------------------------------- banner decisions
@@ -159,6 +161,40 @@ eq(voicePhase({ ...initialVoiceUi, runActive: true }), "working", "phase: workin
 eq(voicePhase({ ...initialVoiceUi, playback: "on" }), "playing", "phase: playing");
 eq(voicePhase({ ...initialVoiceUi, playback: "paused" }), "playing_paused", "phase: paused playback");
 eq(voicePhase({ ...initialVoiceUi, recording: "on", runActive: true }), "recording", "phase: recording beats run");
+
+// activity readout (0.5.1): thinking / live tool phrases / nothing in between
+const user = (t) => ({ role: "user", content: t });
+const asst = (blocks) => ({ role: "assistant", content: blocks, model: "m", provider: "p" });
+const think = () => ({ type: "thinking", thinking: "hmm" });
+const call = (id, name) => ({ type: "toolCall", toolCallId: id, toolName: name, input: {} });
+const result = (id) => ({ role: "toolResult", toolCallId: id, content: [{ type: "text", text: "ok" }] });
+const text = (t) => ({ type: "text", text: t });
+
+eq(toolActivity("bash"), "bashing", "tool phrase: bash");
+eq(toolActivity("web_search"), "searching the web", "tool phrase: web_search");
+eq(toolActivity("grep"), "grepping", "tool phrase: grep");
+eq(toolActivity("Bash"), "bashing", "tool phrase: case-insensitive");
+eq(toolActivity("multi_search"), "multi searching", "tool phrase: gerund fallback");
+
+eq(currentActivity([]), null, "activity: empty transcript");
+eq(currentActivity([user("hi"), asst([text("yo")]), user("more")]), null,
+  "activity: user tail (fresh prompt) is null even after old thinking");
+eq(currentActivity([user("hi"), asst([think()])]), "thinking",
+  "activity: thinking tail");
+eq(currentActivity([user("hi"), asst([think(), call("a", "bash")])]), "bashing",
+  "activity: live tool call wins over earlier thinking");
+eq(currentActivity([user("hi"), asst([think(), call("a", "bash")]), result("a")]), null,
+  "activity: resolved tool + non-thinking tail = nothing (no 'working')");
+eq(currentActivity([user("hi"), asst([think(), call("a", "bash")]), result("a"),
+  asst([think()])]), "thinking",
+  "activity: new thinking after tool round");
+eq(currentActivity([user("hi"), asst([call("a", "bash"), call("b", "web_search")]),
+  result("a")]), "searching the web",
+  "activity: parallel calls — newest unresulted wins");
+eq(currentActivity([user("hi"), asst([text("reply")])]), null,
+  "activity: streaming reply = nothing");
+eq(currentActivity([user("hi"), asst([])]), null,
+  "activity: empty assistant message = nothing");
 
 console.log(failures === 0 ? "\nvoice-mode-check: all green" : `\nvoice-mode-check: ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

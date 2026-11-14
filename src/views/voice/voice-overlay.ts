@@ -103,6 +103,7 @@ export class VoiceOverlay {
   private readonly gesturesEl: HTMLElement;
   private readonly msgEl: HTMLElement;
   private readonly countdownEl: HTMLElement;
+  private readonly activityEl: HTMLElement;
   private readonly stopEl: HTMLElement;
   private readonly glowEl: HTMLElement;
   private readonly renderer: TranscriptRenderer;
@@ -151,6 +152,8 @@ export class VoiceOverlay {
     const msg = div("pi-voice-msg");
     gestures.append(msg);
 
+    const activity = div("pi-voice-activity");
+
     const countdown = div("pi-voice-countdown");
 
     const stop = document.createElement("button");
@@ -161,13 +164,14 @@ export class VoiceOverlay {
       e.stopPropagation();
       this.handlers.onStopRun?.();
     });
-    pane.append(gestures, countdown, stop);
+    pane.append(gestures, activity, countdown, stop);
     document.body.appendChild(glow);
     this.el = pane;
     this.glowEl = glow;
     this.gesturesEl = gestures;
     this.msgEl = msg;
     this.countdownEl = countdown;
+    this.activityEl = activity;
     this.stopEl = stop;
 
     // ---- containment: body-attached fixed layer pinned to the container's
@@ -206,6 +210,13 @@ export class VoiceOverlay {
 
   /** Glow state machine: one `pi-voice-phase-<phase>` class on the glow layer
    *  (color) plus a recipe class — breath (whole string) or chase (comet). */
+  /** Centered activity readout ("thinking", "searching the web"…); null hides. */
+  setActivity(text: string | null): void {
+    if (this.destroyed) return;
+    this.activityEl.textContent = text;
+    this.activityEl.classList.toggle("pi-voice-activity-on", text !== null);
+  }
+
   setPhase(phase: VoiceGlowPhase): void {
     for (const p of GLOW_PHASES) this.glowEl.classList.remove(`pi-voice-phase-${p}`);
     this.glowEl.classList.add(`pi-voice-phase-${phase}`);

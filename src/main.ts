@@ -17,6 +17,7 @@ export type { VoiceMode, BannerAction } from "./views/voice/banner-state";
 export { reduceVoiceUi, voicePhase, initialVoiceUi } from "./views/voice/gesture-state";
 export type { VoiceUi, VoiceEvent, VoiceAction, VoiceGlowPhase } from "./views/voice/gesture-state";
 export { parsePromptFile, wrapVoiceBlock, loadVoicePrompts } from "./views/voice/prompts";
+export { currentActivity, toolActivity } from "./views/voice/activity";
 
 // Convention layout (see PLAN/OVERVIEW.md):
 //   src/api/     transport (REST client, SSE reader)

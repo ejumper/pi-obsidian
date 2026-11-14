@@ -20,6 +20,7 @@ import {
   type VoiceUi,
 } from "./gesture-state";
 import type { VoicePrompts } from "./prompts";
+import { currentActivity } from "./activity";
 import { VoiceSession } from "./voice-session";
 import { TtsPlayer } from "./tts";
 import { VoiceRecorder } from "./stt";
@@ -31,8 +32,9 @@ export interface VoiceControllerOptions {
   ttsUrl: string;
   /** OpenAI-compatible STT base (default https://stt.halfab.net). */
   sttUrl: string;
-  /** Overlay repaint hook: glow phase + countdown seconds (null = hidden). */
-  onUi?: (phase: VoiceGlowPhase, countdown: number | null) => void;
+  /** Overlay repaint hook: glow phase + countdown seconds (null = hidden) +
+   *  activity text (null = nothing specific — the glow carries the rest). */
+  onUi?: (phase: VoiceGlowPhase, countdown: number | null, activity: string | null) => void;
   onNotice?: (message: string) => void;
   /** Send a prompt through the composer's session path — creates the session
    *  when none exists (the store's sendPrompt silently no-ops on a session-less
@@ -313,6 +315,14 @@ export class VoiceController {
       if (this.synthesizing) phase = "synthesizing";
       else if (this.connecting) phase = "connecting";
     }
-    this.opts.onUi?.(phase, this.countdownTimer !== null ? this.countdownLeft : null);
+    // Activity readout: only while a run is doing something SPECIFIC; the
+    // in-between run state shows nothing (the glow already carries it). The
+    // stop countdown owns the center while it runs.
+    const countdown = this.countdownTimer !== null ? this.countdownLeft : null;
+    const activity =
+      countdown === null && this.opts.store.state.agentRunning
+        ? currentActivity(this.opts.store.state.messages)
+        : null;
+    this.opts.onUi?.(phase, countdown, activity);
   }
 }
