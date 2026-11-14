@@ -97,7 +97,11 @@ export class VoiceController {
   /** Toggle voice mode for this tab. Off: stop audio, drop any recording. */
   setVoiceMode(on: boolean): void {
     this.mode = on ? "voice" : "normal";
-    if (!on) {
+    if (on) {
+      // Absorb WebKit's first-recording-is-empty quirk with a throwaway clip —
+      // the panel tap is a user gesture, so getUserMedia is legal right here.
+      void this.recorder.prime();
+    } else {
       this.tts.stopAndFlush();
       this.recorder.discard();
       this.clearCountdown();

@@ -174,10 +174,27 @@ export class VoiceRecorder {
    * Returns the transcript text. Fetch/HTTP/JSON failures report via onError
    * AND reject, so the caller can't mistake them for an empty transcript.
    */
+  /**
+   * Absorb WebKit's "first MediaRecorder recording is empty" quirk with a
+   * throwaway clip. Must run inside a user gesture (the panel tap qualifies).
+   */
+  async prime(): Promise<void> {
+    try {
+      await this.start();
+      await new Promise((r) => setTimeout(r, 250));
+      this.discard();
+    } catch {
+      // priming is best-effort — real recording still reports its own errors
+    }
+  }
+
   async stopAndSend(): Promise<string> {
     const blob = await this.stopAndWait();
-    if (!blob) {
-      const msg = "Transcription skipped: no audio captured (already stopped or discarded?)";
+    if (!blob || blob.size < 200) {
+      // WebKit's first-recording quirk yields an empty/tiny blob — say so instead
+      // of letting the server 500 on zero bytes. prime() absorbs it up front.
+      const msg =
+        "Recording came back empty (known iOS first-recording quirk) — hold once more and it will work";
       this.error(msg);
       throw new Error(msg);
     }

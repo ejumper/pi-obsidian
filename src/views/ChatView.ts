@@ -206,6 +206,7 @@ export class ChatView extends ItemView {
         // finger was landing ~400px below the gesture surface. The title bar is
         // kept clear of the gesture layer via avoidEl.
         container: this.contentEl,
+        extendBottom: Platform.isMobile,
         avoidEl: this.contentEl.querySelector(".pi-chat-bar") ?? undefined,
         onDebug: (m: string) => {
           this.voiceDbg.det = m;

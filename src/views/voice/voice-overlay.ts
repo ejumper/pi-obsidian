@@ -44,6 +44,8 @@ export interface VoiceOverlayOptions {
   onFirstGesture?: () => void;     // fire once on the first pointer interaction (autoplay unlock)
   /** Title-bar element — kept clear of the gesture layer's tap surface. */
   avoidEl?: HTMLElement;
+  /** Grow the pane to the viewport bottom (mobile nav takeover, like the composer). */
+  extendBottom?: boolean;
   /** Rolling detector decision trace (beta9 diagnostics). */
   onDebug?: (msg: string) => void;
   apiBase: string;                 // passed through to the transcript renderer
@@ -253,7 +255,9 @@ export class VoiceOverlay {
     this.el.style.left = `${Math.round(r.left)}px`;
     this.el.style.top = `${Math.round(r.top)}px`;
     this.el.style.width = `${Math.round(r.width)}px`;
-    this.el.style.height = `${Math.round(r.height)}px`;
+    this.el.style.height = `${Math.round(
+      this.opts.extendBottom ? Math.max(r.height, window.innerHeight - r.top) : r.height,
+    )}px`;
     // Keep the gesture surface clear of the title bar (back button, rename).
     const avoid = this.opts.avoidEl;
     if (avoid) {

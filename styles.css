@@ -115,7 +115,12 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 /* Voice mode (PHASE-14): composer hides while the hands-free overlay is up.
    Class + !important on purpose — the keyboard inset code flips inline display. */
 .pi-chat-composer.pi-voice-hidden {
-  display: none !important;
+  /* NOT display:none (beta10): the chat column's geometry derives from the
+     composer's box (composerTop reads its rect) — display:none zeroes the box
+     and collapsed the whole view to a 160px stub. Keep the box, drop the
+     pixels: visibility:hidden preserves layout, the voice pane covers the area. */
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .pi-chat-composer.pi-working::before {
