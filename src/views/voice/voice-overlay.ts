@@ -134,11 +134,15 @@ export class VoiceOverlay {
     container.addEventListener("scroll", this.onContainerScroll);
     this.syncPosition();
 
-    // ---- gestures (pointer capture: a drag leaving the surface still counts) ----
+    // ---- gestures: pointerdown on the surface, move/up/cancel on WINDOW.
+    // No setPointerCapture: WebKit/iOS loses pointerup under capture on touch
+    // pointers, which wedges the tracker (pointerId never resets → every later
+    // tap is ignored). Window-level listeners keep drags leaving the surface
+    // resolving correctly without capture.
     gestures.addEventListener("pointerdown", this.onPointerDown);
-    gestures.addEventListener("pointermove", this.onPointerMove);
-    gestures.addEventListener("pointerup", this.onPointerUp);
-    gestures.addEventListener("pointercancel", this.onPointerCancel);
+    window.addEventListener("pointermove", this.onPointerMove);
+    window.addEventListener("pointerup", this.onPointerUp);
+    window.addEventListener("pointercancel", this.onPointerCancel);
 
     // ---- last-message render (ONE React root; the banner stays stripped) ----
     // The markdown context is a module global the view's own TranscriptRenderer
@@ -206,9 +210,9 @@ export class VoiceOverlay {
     const container = this.opts.container;
     container.removeEventListener("scroll", this.onContainerScroll);
     this.gesturesEl.removeEventListener("pointerdown", this.onPointerDown);
-    this.gesturesEl.removeEventListener("pointermove", this.onPointerMove);
-    this.gesturesEl.removeEventListener("pointerup", this.onPointerUp);
-    this.gesturesEl.removeEventListener("pointercancel", this.onPointerCancel);
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("pointercancel", this.onPointerCancel);
     if (this.longTimer !== null) window.clearTimeout(this.longTimer);
     if (this.tapTimer !== null) window.clearTimeout(this.tapTimer);
     this.longTimer = null;
@@ -236,8 +240,14 @@ export class VoiceOverlay {
     // Autoplay unlock hook: exactly once, on the first pointer interaction.
     if (!this.firstGestureFired) {
       this.firstGestureFired = true;
-      this.opts.onFirstGesture?.();
+      try {
+        this.opts.onFirstGesture?.();
+      } catch {
+        // autoplay unlock must never take the gesture path down
+      }
     }
+    // TEMP breadcrumbs for the iOS gesture spike — remove once validated on device.
+    console.log("[pi-voice] down", e.pointerId);
     // Interactive message content (links, buttons, fields) keeps its own clicks —
     // a tap there must not also be a voice gesture (chat's [data-ui] exclusion).
     const target = e.target;
@@ -254,11 +264,6 @@ export class VoiceOverlay {
       this.longFired = true;
       this.handlers.onLongPress();
     }, LONG_PRESS_MS);
-    try {
-      this.gesturesEl.setPointerCapture(e.pointerId);
-    } catch {
-      // pointer already gone — the timers still resolve the gesture
-    }
   };
 
   private readonly onPointerMove = (e: PointerEvent): void => {
@@ -274,8 +279,12 @@ export class VoiceOverlay {
 
   private readonly onPointerUp = (e: PointerEvent): void => {
     if (e.pointerId !== this.pointerId) return;
-    this.releasePointer(e.pointerId);
     this.pointerId = null;
+    console.log(
+      "[pi-voice] up",
+      e.pointerId,
+      this.longFired ? "long" : this.swiped ? "swipe" : this.tapTimer !== null ? "double" : "tap-pending",
+    );
     if (this.longTimer !== null) {
       window.clearTimeout(this.longTimer);
       this.longTimer = null;
@@ -306,6 +315,7 @@ export class VoiceOverlay {
 
   private readonly onPointerCancel = (e: PointerEvent): void => {
     if (e.pointerId !== this.pointerId) return;
+    console.log("[pi-voice] cancel", e.pointerId);
     this.pointerId = null;
     if (this.longTimer !== null) {
       window.clearTimeout(this.longTimer);
@@ -315,11 +325,4 @@ export class VoiceOverlay {
     // earlier completed pointerup keeps its own window.
   };
 
-  private releasePointer(id: number): void {
-    try {
-      if (this.gesturesEl.hasPointerCapture(id)) this.gesturesEl.releasePointerCapture(id);
-    } catch {
-      // capture already gone
-    }
-  }
 }
