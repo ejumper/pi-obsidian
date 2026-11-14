@@ -109,6 +109,16 @@ export class VoiceController {
   setVoiceMode(on: boolean): void {
     this.mode = on ? "voice" : "normal";
     if (on) {
+      // History is never spoken: everything already in the store at activation
+      // is history and gets marked seen right here (0.5.1 — closes the entry-id
+      // timing race that could replay an old reply at toggle-on). Exception: a
+      // run in flight gets its reply spoken.
+      const s = this.opts.store.state;
+      for (let i = 0; i < s.entryIds.length; i++) {
+        if (s.agentRunning && i === s.entryIds.length - 1) continue;
+        this.seenIds.add(s.entryIds[i]);
+      }
+      this.paint();
       // Absorb WebKit's first-recording-is-empty quirk with a throwaway clip —
       // the panel tap is a user gesture, so getUserMedia is legal right here.
       void this.recorder.prime();
