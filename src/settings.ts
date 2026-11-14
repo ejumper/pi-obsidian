@@ -43,6 +43,10 @@ export interface PiSettings {
   lastUsedInstanceId?: string;
   /** Include open-file @mentions in outgoing prompts. */
   includeMentions: boolean;
+  /** Voice-mode TTS endpoint (OpenAI-compatible /v1/audio/speech base). */
+  ttsUrl: string;
+  /** Voice-mode STT endpoint (OpenAI-compatible /v1/audio/transcriptions base). */
+  sttUrl: string;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
@@ -53,6 +57,8 @@ export const DEFAULT_SETTINGS: PiSettings = {
   defaultModel: null,
   defaultThinkingLevel: "auto",
   includeMentions: false,
+  ttsUrl: "https://piper.halfab.net",
+  sttUrl: "https://stt.halfab.net",
 };
 
 export class PiSettingTab extends PluginSettingTab {
@@ -206,6 +212,32 @@ export class PiSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+
+    new Setting(containerEl).setName("Voice mode").setHeading();
+    new Setting(containerEl)
+      .setName("TTS endpoint")
+      .setDesc("OpenAI-compatible /v1/audio/speech base for voice mode's read-aloud.")
+      .addText((text) =>
+        text
+          .setPlaceholder("https://piper.halfab.net")
+          .setValue(this.plugin.settings.ttsUrl)
+          .onChange(async (value) => {
+            this.plugin.settings.ttsUrl = value.trim() || "https://piper.halfab.net";
+            await this.plugin.saveSettings();
+          }),
+      );
+    new Setting(containerEl)
+      .setName("STT endpoint")
+      .setDesc("OpenAI-compatible /v1/audio/transcriptions base for voice mode dictation.")
+      .addText((text) =>
+        text
+          .setPlaceholder("https://stt.halfab.net")
+          .setValue(this.plugin.settings.sttUrl)
+          .onChange(async (value) => {
+            this.plugin.settings.sttUrl = value.trim() || "https://stt.halfab.net";
+            await this.plugin.saveSettings();
+          }),
+      );
 
     new Setting(containerEl)
       .setName("Provider auth & API keys")

@@ -46,6 +46,7 @@ const context = await esbuild.context({
   bundle: true,
   external: ["obsidian", "electron", ...builtins],
   format: "cjs",
+  loader: { ".md": "text" },
   target: "es2022",
   logLevel: "info",
   sourcemap: prod ? false : "inline",

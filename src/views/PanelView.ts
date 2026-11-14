@@ -30,6 +30,8 @@ export class PanelView extends ItemView {
   private mode: PanelMode = "recent";
   /** Include/exclude open-file @mentions pill (settings-backed). */
   private mentionsPill: PillSelect<boolean> | null = null;
+  /** Voice-mode toggle — focused pi tab (PHASE-14). */
+  private voiceBtnEl: HTMLElement | null = null;
   /** Machine pill — the focused pi tab's instance selector (Phase 13 / T47). */
   private machinePill: PillSelect<string> | null = null;
 
@@ -109,11 +111,31 @@ export class PanelView extends ItemView {
     });
     this.machinePill = machinePill;
     root.createDiv({ cls: "pi-panel-settings" }).appendChild(machinePill.el);
+
+    // Voice-mode button (PHASE-14): big tap row for driving — toggles the
+    // focused pi tab's hands-free overlay.
+    const voiceBtn = root.createEl("button", {
+      cls: "pi-panel-voice-btn",
+      attr: { "aria-label": "Voice mode — hands-free; double-tap the overlay to talk" },
+    });
+    setIcon(voiceBtn.createSpan(), "mic");
+    voiceBtn.createSpan({ text: "Voice mode" });
+    voiceBtn.addEventListener("click", () => {
+      void this.plugin
+        .withChatView((v) => v.setVoiceMode(!v.isVoiceMode()))
+        .then(() => this.syncVoiceButton());
+    });
+    this.voiceBtnEl = voiceBtn;
+    root.createDiv({ cls: "pi-panel-settings" }).appendChild(voiceBtn);
+    this.syncVoiceButton();
     // Re-sync when the focused pi tab changes, and on pill open — mobile tab
     // switches don't reliably deliver active-leaf-change (see main.ts), so a
     // tap re-reads the focused tab before the user picks a machine.
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.syncMachinePill())
+    );
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => this.syncVoiceButton())
     );
     machinePill.el.addEventListener("click", () => this.syncMachinePill(), true);
 
@@ -189,6 +211,22 @@ export class PanelView extends ItemView {
     const iconEl = pill.el.querySelector<HTMLElement>(".pi-pill-icon");
     if (iconEl) setIcon(iconEl, include ? "file" : "file-x");
     pill.setValue(include);
+  }
+
+  /** Re-sync the voice button to the focused pi tab's mode (same active-view
+   *  identity match as the machine pill). */
+  private syncVoiceButton(): void {
+    const btn = this.voiceBtnEl;
+    if (!btn) return;
+    const active =
+      this.plugin
+        .getChatViews()
+        .find((v) => v.getStore() === this.plugin.getActiveStore())
+        ?.isVoiceMode() ?? false;
+    btn.toggleClass("is-active", active);
+    btn.empty();
+    setIcon(btn.createSpan(), active ? "mic-off" : "mic");
+    btn.createSpan({ text: active ? "Voice mode on" : "Voice mode" });
   }
 
   /** Re-sync the machine pill (label + selection) to the focused pi tab's

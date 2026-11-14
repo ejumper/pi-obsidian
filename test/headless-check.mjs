@@ -26,6 +26,7 @@ const bundle = require("../dist/main.js");
 const PiPlugin = bundle.default ?? bundle;
 
 const appStub = {
+  vault: { adapter: { read: async () => { throw new Error("stub: no vault files"); } } },
   workspace: {
     on: () => ({}),
     getLeavesOfType: () => [],

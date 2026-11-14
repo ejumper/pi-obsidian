@@ -95,6 +95,10 @@ speaking the pi-web site's existing HTTP+SSE API over Tailscale.
 - [x] **Phase 13 — Multi-instance machines** *(PHASE-13.md)*: named pi-web instances in
       settings, per-tab machine binding (persisted), panel machine pill, per-machine session
       lists, last-used machine for new tabs. **Ship as 0.4.0.**
+- [ ] **Phase 14 — Voice mode** *(PHASE-14.md)*: hands-free overlay on the current session
+      (pi-voice-chat port): gestures + glow, faster-whisper STT + piper TTS via new
+      `stt.halfab.net` / `piper.halfab.net` contracts, read-mode-style invisible mode banners.
+      **Ship as 0.5.0.**
 - [x] **Phase 11 (E) — Multiple pi tabs** *(PHASE-11.md)*: N sessions in N tabs/splits with an
       active-view concept; new "Open pi in new tab" command. **Ship everything as 0.3.2.**
 - [~] **Phase 6 — Hardening & distribution** (2026-11-04/05): phone-validated via BRAT

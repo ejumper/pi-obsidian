@@ -5,6 +5,7 @@ import { ItemView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidi
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage, AttachedImageInput } from "../api/types";
 import { computeTranscriptUnits } from "./message-display";
+import { stripVoiceBlocks, stripMessageVoiceBlocks } from "./voice/banner-state";
 import { TranscriptRenderer } from "./react/Transcript";
 import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
@@ -12,6 +13,9 @@ import { resolveServerPath } from "../state/paths";
 import { attachKeyboardInset, composerBottomPx, readKeyboardHeightPx } from "./keyboard";
 import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
+import { VoiceController } from "./voice/voice-controller";
+import { VoiceOverlay } from "./voice/voice-overlay";
+import { loadVoicePrompts } from "./voice/prompts";
 
 export const VIEW_TYPE_PI_CHAT = "pi-chat";
 
@@ -68,6 +72,10 @@ export class ChatView extends ItemView {
   private prevShownForFocus = false;
   /** The machine this tab talks to (Phase 13) — persisted in leaf state. */
   private instanceId = "";
+  /** Voice mode (PHASE-14) — hands-free overlay over the transcript. */
+  private voiceController: VoiceController | null = null;
+  private voiceOverlay: VoiceOverlay | null = null;
+  private voiceOn = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -99,7 +107,63 @@ export class ChatView extends ItemView {
     if (!id || id === this.instanceId) return;
     this.instanceId = id;
     this.store.rebind(this.plugin.getClient(id));
+    this.setVoiceMode(false);
     this.render();
+  }
+
+  /** Hands-free voice mode (PHASE-14): overlay covers the transcript, composer
+   *  hides (CSS class, not inline — the keyboard inset code flips display), and
+   *  the banner state machine keeps per-send announcements flowing. */
+  setVoiceMode(on: boolean): void {
+    this.voiceOn = on;
+    this.voiceController?.setVoiceMode(on);
+    this.voiceOverlay?.setVisible(on);
+    this.composerEl?.toggleClass("pi-voice-hidden", on);
+  }
+
+  isVoiceMode(): boolean {
+    return this.voiceOn;
+  }
+
+  /** Build the voice controller + overlay after the DOM exists. Eager so the
+   *  banner machine wraps EVERY send — a typed prompt after a voice turn must
+   *  announce "voice mode off" even if this tab never opened voice mode. */
+  private async initVoice(): Promise<void> {
+    try {
+      const prompts = await loadVoicePrompts(
+        this.app.vault.adapter,
+        this.plugin.manifest?.dir,
+      );
+      this.voiceController = new VoiceController({
+        store: this.store,
+        prompts,
+        ttsUrl: this.plugin.settings.ttsUrl,
+        sttUrl: this.plugin.settings.sttUrl,
+        onUi: (phase, countdown) => {
+          this.voiceOverlay?.setPhase(phase);
+          this.voiceOverlay?.setCountdown(countdown);
+        },
+        onNotice: (message) => new Notice(`pi: ${message}`, 6000),
+      });
+      this.voiceOverlay = new VoiceOverlay({
+        container: this.transcriptEl,
+        handlers: {
+          onTap: () => this.voiceController?.tap(),
+          onDoubleTap: () => this.voiceController?.doubleTap(),
+          onLongPress: () => this.voiceController?.longPress(),
+          onLongRelease: () => this.voiceController?.longRelease(),
+        },
+        onFirstGesture: () => this.voiceController?.unlock(),
+        apiBase: this.plugin.getClient(this.instanceId).baseUrl,
+        cwd: this.store.state.cwd,
+        sessionId: this.store.state.sessionId ?? undefined,
+      });
+    } catch (e) {
+      // Voice mode is optional sugar — its failure must never take the chat down.
+      console.error("pi-obsidian voice init failed:", e);
+      this.voiceController = null;
+      this.voiceOverlay = null;
+    }
   }
 
   private createStore(): AgentStore {
@@ -136,6 +200,7 @@ export class ChatView extends ItemView {
         onChange: () => this.updateComposerState(),
       });
       this.buildDom();
+      void this.initVoice();
       // Tab count follows tab open/close anywhere in the workspace.
       this.registerEvent(
         this.app.workspace.on("layout-change", () => this.updateTabCount())
@@ -208,6 +273,8 @@ export class ChatView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.voiceController?.destroy();
+    this.voiceOverlay?.destroy();
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.detachKeyboard?.();
@@ -508,12 +575,13 @@ export class ChatView extends ItemView {
     }
 
     const finalText = withFileLines(await this.prependMentions(text, s.cwd));
+    const outgoing = this.voiceController?.wrapTyped(finalText) ?? finalText;
     this.inputEl.value = "";
     this.growEditor();
     if (s.agentRunning) {
-      void this.store.steer(finalText, images); // Queue button / Enter while running = steer
+      void this.store.steer(outgoing, images); // Queue button / Enter while running = steer
     } else {
-      void this.store.sendPrompt(finalText, images);
+      void this.store.sendPrompt(outgoing, images);
     }
   }
 
@@ -713,8 +781,8 @@ export class ChatView extends ItemView {
     // pi-web's MessageView components render the grouped units (see
     // react/Transcript.tsx + views/message-display.ts).
     this.transcript.update({
-      units: computeTranscriptUnits(s.messages, s.agentRunning, s.entryIds),
-      streaming: s.streamingMessage,
+      units: computeTranscriptUnits(s.messages.map(stripMessageVoiceBlocks), s.agentRunning, s.entryIds),
+      streaming: s.streamingMessage ? stripMessageVoiceBlocks(s.streamingMessage) : null,
       modelNames: this.modelNames,
       cwd: s.cwd,
       sessionId: s.sessionId ?? undefined,
@@ -722,7 +790,7 @@ export class ChatView extends ItemView {
       apiBase: this.plugin.getClient(this.instanceId).baseUrl,
       onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
       onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },
-      onEditContent: (content: string) => this.insertIntoComposer(content),
+      onEditContent: (content: string) => this.insertIntoComposer(stripVoiceBlocks(content)),
       onRendered: () => {
         // Fires after React commits — the only moment scrollHeight is real.
         if (Date.now() <= this.pinBottomUntil) {
@@ -730,6 +798,11 @@ export class ChatView extends ItemView {
         }
       },
     });
+
+    this.voiceOverlay?.setLastMessage(
+      [...s.messages].reverse().find((m) => m.role === "assistant") ?? null,
+      s.streamingMessage,
+    );
 
     if (stick || sessionChanged || loadSettled) {
       requestAnimationFrame(() => {
@@ -760,7 +833,7 @@ export class ChatView extends ItemView {
     const s = this.store.state;
     const title =
       s.sessionName ||
-      s.firstMessage.slice(0, 60) ||
+      stripVoiceBlocks(s.firstMessage).slice(0, 60) ||
       (this.pendingCwd ? `new session · ${this.pendingCwd}` : "new session");
     this.sessionTitleEl.setText(name || title);
   }

@@ -11,6 +11,13 @@ import { PanelView, VIEW_TYPE_PI_PANEL } from "./views/PanelView";
 declare const __BUILD_ID__: string;
 export const BUILD_ID: string = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "dev";
 
+// Voice-mode pure logic (PHASE-14) — re-exported for the test harness (test/voice-mode-check.mjs).
+export { decideBanner, recoverAnnounced, stripVoiceBlocks, parseVoiceBlock } from "./views/voice/banner-state";
+export type { VoiceMode, BannerAction } from "./views/voice/banner-state";
+export { reduceVoiceUi, voicePhase, initialVoiceUi } from "./views/voice/gesture-state";
+export type { VoiceUi, VoiceEvent, VoiceAction, VoiceGlowPhase } from "./views/voice/gesture-state";
+export { parsePromptFile, wrapVoiceBlock, loadVoicePrompts } from "./views/voice/prompts";
+
 // Convention layout (see PLAN/OVERVIEW.md):
 //   src/api/     transport (REST client, SSE reader)
 //   src/state/   protocol state store (ported useAgentSession logic)
