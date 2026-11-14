@@ -194,6 +194,9 @@ export class VoiceOverlay {
   setVisible(on: boolean): void {
     if (this.destroyed) return;
     this.el.classList.toggle("pi-voice-visible", on);
+    // The glow is a body-level layer now (beta18) — it must be hidden with the
+    // pane explicitly, or it shows over normal typed prompts (beta19 bug).
+    this.glowEl.style.display = on ? "" : "none";
     // Re-anchor on show: the transcript may have scrolled while hidden.
     if (on) this.syncPosition();
   }
