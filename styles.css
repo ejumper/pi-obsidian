@@ -1511,12 +1511,16 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 /* Voice debug strip (beta4): on-device diagnostics, visible only in voice mode.
    Outside the overlay on purpose — it must survive an overlay failure. */
 .pi-voice-debug {
-  position: absolute;
+  /* FIXED, not absolute (beta9): the debug strip must be structurally incapable
+     of joining the chat column's layout — it is the prime suspect for the
+     voice-on layout collapse. Visible always: the voice-off numbers are half
+     the experiment. */
+  position: fixed;
   top: 6px;
   left: 6px;
   z-index: 200;
   pointer-events: none;
-  display: none;
+  display: block;
   margin: 0;
   padding: 6px 8px;
   max-width: 90%;

@@ -82,7 +82,9 @@ export class ChatView extends ItemView {
   private voiceDbg = {
     init: "pending",
     overlay: "pending",
+    pre: "(not captured)",
     pane: "(not probed)",
+    det: "-",
     raw: { down: 0, up: 0, cancel: 0 },
     handlers: 0,
     phase: "-",
@@ -132,8 +134,11 @@ export class ChatView extends ItemView {
     this.voiceController?.setVoiceMode(on);
     this.voiceOverlay?.setVisible(on);
     this.composerEl?.toggleClass("pi-voice-hidden", on);
-    this.voiceDebugEl?.style.setProperty("display", on ? "block" : "none");
     if (on) {
+      // Capture the voice-OFF geometry BEFORE activating — the before/after
+      // pair on one screen is the experiment (beta9).
+      this.voiceProbe();
+      this.voiceDbg.pre = this.voiceDbg.pane.split("\n")[0];
       this.startVoiceRaw();
       this.updateVoiceDebug();
       // Stacking probe: what element is physically on top of the pane's center.
@@ -202,6 +207,10 @@ export class ChatView extends ItemView {
         // kept clear of the gesture layer via avoidEl.
         container: this.contentEl,
         avoidEl: this.contentEl.querySelector(".pi-chat-bar") ?? undefined,
+        onDebug: (m: string) => {
+          this.voiceDbg.det = m;
+          this.updateVoiceDebug();
+        },
       });
       this.voiceDbg.overlay = "ok";
     } catch (e) {
@@ -282,12 +291,14 @@ export class ChatView extends ItemView {
 
   private updateVoiceDebug(): void {
     const el = this.voiceDebugEl;
-    if (!el || !this.voiceOn) return;
+    if (!el) return;
     this.voiceProbe();
     const d = this.voiceDbg;
     el.setText(
       `voice debug ${BUILD_ID} | init:${d.init} overlay:${d.overlay}\n` +
+      `pre(off) ${d.pre}\n` +
       `${d.pane}\n` +
+      `det ${d.det}\n` +
       `raw: down ${d.raw.down} up ${d.raw.up} cancel ${d.raw.cancel} | handlers ${d.handlers}\n` +
       `phase: ${d.phase} | last: ${d.last}\n` +
       `err: ${d.err}`,
