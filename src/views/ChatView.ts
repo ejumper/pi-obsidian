@@ -76,6 +76,19 @@ export class ChatView extends ItemView {
   private voiceController: VoiceController | null = null;
   private voiceOverlay: VoiceOverlay | null = null;
   private voiceOn = false;
+  /** Voice debug strip (beta4): on-device diagnostics — see updateVoiceDebug(). */
+  private voiceDebugEl: HTMLElement | null = null;
+  private voiceRawListener: ((e: PointerEvent) => void) | null = null;
+  private voiceDbg = {
+    init: "pending",
+    overlay: "pending",
+    pane: "(not probed)",
+    raw: { down: 0, up: 0, cancel: 0 },
+    handlers: 0,
+    phase: "-",
+    last: "-",
+    err: "-",
+  };
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -119,6 +132,29 @@ export class ChatView extends ItemView {
     this.voiceController?.setVoiceMode(on);
     this.voiceOverlay?.setVisible(on);
     this.composerEl?.toggleClass("pi-voice-hidden", on);
+    this.voiceDebugEl?.style.setProperty("display", on ? "block" : "none");
+    if (on) {
+      this.startVoiceRaw();
+      this.updateVoiceDebug();
+      // Stacking probe: what element is physically on top of the pane's center.
+      requestAnimationFrame(() => {
+        const el = this.voiceOverlay?.el;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const cx = Math.round(r.left + r.width / 2);
+        const cy = Math.round(r.top + r.height / 2);
+        const top = document.elementFromPoint(cx, cy);
+        const topDesc = top
+          ? `${top.tagName.toLowerCase()}.${typeof top.className === "string" ? top.className.split(" ")[0] : ""}`
+          : "?";
+        this.voiceDbg.pane =
+          `pane:${cs.display} ${Math.round(r.width)}x${Math.round(r.height)}@${cx},${cy} top=${topDesc}`;
+        this.updateVoiceDebug();
+      });
+    } else {
+      this.stopVoiceRaw();
+    }
   }
 
   isVoiceMode(): boolean {
@@ -140,32 +176,96 @@ export class ChatView extends ItemView {
         ttsUrl: this.plugin.settings.ttsUrl,
         sttUrl: this.plugin.settings.sttUrl,
         onUi: (phase, countdown) => {
+          this.voiceDbg.phase = countdown !== null ? `${phase}+cd${countdown}` : phase;
+          this.updateVoiceDebug();
           this.voiceOverlay?.setPhase(phase);
           this.voiceOverlay?.setCountdown(countdown);
         },
-        onNotice: (message) => new Notice(`pi: ${message}`, 6000),
+        onNotice: (message) => {
+          this.voiceDbg.err = message;
+          this.updateVoiceDebug();
+          new Notice(`pi: ${message}`, 6000);
+        },
       });
+      this.voiceDbg.init = "ok";
+      const h = (name: string, fn: () => void): (() => void) => () => {
+        this.voiceDbg.handlers += 1;
+        this.voiceDbg.last = `handler:${name}`;
+        this.updateVoiceDebug();
+        fn();
+      };
       this.voiceOverlay = new VoiceOverlay({
         container: this.transcriptEl,
         handlers: {
-          onTap: () => this.voiceController?.tap(),
-          onDoubleTap: () => this.voiceController?.doubleTap(),
-          onLongPress: () => this.voiceController?.longPress(),
+          onTap: h("tap", () => this.voiceController?.tap()),
+          onDoubleTap: h("doubleTap", () => this.voiceController?.doubleTap()),
+          onLongPress: h("longPress", () => this.voiceController?.longPress()),
           onLongRelease: (swiped: boolean) =>
-            swiped ? this.voiceController?.holdCancel() : this.voiceController?.longRelease(),
-          onStopRun: () => this.voiceController?.stopRun(),
+            swiped
+              ? h("holdCancel", () => this.voiceController?.holdCancel())()
+              : h("longRelease", () => this.voiceController?.longRelease())(),
+          onStopRun: h("stopRun", () => this.voiceController?.stopRun()),
         },
         onFirstGesture: () => this.voiceController?.unlock(),
         apiBase: this.plugin.getClient(this.instanceId).baseUrl,
         cwd: this.store.state.cwd,
         sessionId: this.store.state.sessionId ?? undefined,
       });
+      this.voiceDbg.overlay = "ok";
     } catch (e) {
       // Voice mode is optional sugar — its failure must never take the chat down.
+      const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
       console.error("pi-obsidian voice init failed:", e);
+      this.voiceDbg.init = "FAILED";
+      this.voiceDbg.err = msg.split("\n")[0];
+      new Notice(`pi voice init failed — ${this.voiceDbg.err}`, 10000);
       this.voiceController = null;
       this.voiceOverlay = null;
     }
+    this.updateVoiceDebug();
+  }
+
+  /** Raw pointer census in CAPTURE phase — sees events before anything can eat
+   *  them. If `down` stays 0 while you touch, delivery itself is the problem; if
+   *  it counts but `handlers` stays 0, the detector/exclusion is eating them. */
+  private startVoiceRaw(): void {
+    if (this.voiceRawListener) return;
+    this.voiceRawListener = (e: PointerEvent) => {
+      if (e.type === "pointerdown") this.voiceDbg.raw.down += 1;
+      else if (e.type === "pointerup") this.voiceDbg.raw.up += 1;
+      else this.voiceDbg.raw.cancel += 1;
+      const t = e.target;
+      const tag =
+        t instanceof Element
+          ? `${t.tagName.toLowerCase()}${typeof t.className === "string" && t.className ? "." + t.className.split(" ")[0] : ""}`
+          : "?";
+      const excluded = t instanceof Element && !!t.closest("a, button, input, textarea, select");
+      this.voiceDbg.last =
+        `${e.type}@${Math.round(e.clientX)},${Math.round(e.clientY)}→${tag}${excluded ? " [EXCL]" : ""}`;
+      this.updateVoiceDebug();
+    };
+    for (const t of ["pointerdown", "pointerup", "pointercancel"])
+      window.addEventListener(t, this.voiceRawListener, true);
+  }
+
+  private stopVoiceRaw(): void {
+    if (!this.voiceRawListener) return;
+    for (const t of ["pointerdown", "pointerup", "pointercancel"])
+      window.removeEventListener(t, this.voiceRawListener, true);
+    this.voiceRawListener = null;
+  }
+
+  private updateVoiceDebug(): void {
+    const el = this.voiceDebugEl;
+    if (!el || !this.voiceOn) return;
+    const d = this.voiceDbg;
+    el.setText(
+      `voice debug ${BUILD_ID} | init:${d.init} overlay:${d.overlay}\n` +
+      `${d.pane}\n` +
+      `raw: down ${d.raw.down} up ${d.raw.up} cancel ${d.raw.cancel} | handlers ${d.handlers}\n` +
+      `phase: ${d.phase} | last: ${d.last}\n` +
+      `err: ${d.err}`,
+    );
   }
 
   private createStore(): AgentStore {
@@ -275,6 +375,7 @@ export class ChatView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.stopVoiceRaw();
     this.voiceController?.destroy();
     this.voiceOverlay?.destroy();
     this.unsubscribe?.();
@@ -315,6 +416,9 @@ export class ChatView extends ItemView {
 
     // Transcript (middle).
     this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
+    // Voice debug strip: lives OUTSIDE the overlay so it survives an overlay
+    // failure — the whole point is diagnosing one.
+    this.voiceDebugEl = root.createEl("pre", { cls: "pi-voice-debug" });
 
     // Composer block: body-attached + fixed (screen geometry — see styles.css).
     const composer = document.body.createDiv({ cls: "pi-chat-composer" });

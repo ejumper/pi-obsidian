@@ -1505,3 +1505,22 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   font-weight: 600;
   display: none;
 }
+
+/* Voice debug strip (beta4): on-device diagnostics, visible only in voice mode.
+   Outside the overlay on purpose — it must survive an overlay failure. */
+.pi-voice-debug {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 200;
+  pointer-events: none;
+  display: none;
+  margin: 0;
+  padding: 6px 8px;
+  max-width: 90%;
+  background: rgba(0, 0, 0, 0.75);
+  color: #7CFF7C;
+  font: 10px/1.5 var(--font-monospace, monospace);
+  white-space: pre-wrap;
+  border-radius: 6px;
+}
