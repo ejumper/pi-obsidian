@@ -70,14 +70,11 @@ export function reduceVoiceUi(
       if (!ui.countdown) return { ui, action: null };
       return { ui: { ...ui, countdown: false }, action: "stop_run" };
     case "long_release":
-      // Walkie-talkie (beta3 remap): a clean release after a hold sends the
-      // recording — the hold started it, the release completes it.
-      if (ui.recording !== "off")
-        return { ui: { ...ui, recording: "off" }, action: "stop_send" };
+      // Original spec: only the stop-run countdown cares about the release.
       if (!ui.countdown) return { ui, action: null };
       return { ui: { ...ui, countdown: false }, action: "cancel_stop_countdown" };
     case "hold_cancel":
-      // Slide-off cancels (walkie-talkie standard): discard the recording.
+      // Slide-off cancels (walkie-talkie legacy — only the countdown listens now).
       if (ui.recording !== "off")
         return { ui: { ...ui, recording: "off" }, action: "discard_recording" };
       if (ui.countdown) return { ui: { ...ui, countdown: false }, action: "cancel_stop_countdown" };
@@ -107,19 +104,13 @@ export function reduceVoiceUi(
         action: "start_recording",
       };
     case "long_press":
-      // Hold-to-talk (beta3 remap): holding RECORDS — unambiguous input for a
-      // car. Release sends (long_release), slide-off cancels (hold_cancel).
+      // Original gesture spec: long-press = discard a recording, arm the stop-run
+      // countdown while a run is active (held through 3…2…1 to stop), else replay.
       if (ui.recording !== "off")
         return { ui: { ...ui, recording: "off" }, action: "discard_recording" };
-      if (ui.playback !== "off")
-        return {
-          ui: { ...ui, playback: "off", recording: "on", countdown: false },
-          action: "stop_playback_start_recording",
-        };
-      return {
-        ui: { ...ui, recording: "on", countdown: false },
-        action: "start_recording",
-      };
+      if (ui.runActive)
+        return { ui: { ...ui, countdown: true }, action: "show_stop_countdown" };
+      return { ui, action: "replay" };
     default:
       return { ui, action: null };
   }

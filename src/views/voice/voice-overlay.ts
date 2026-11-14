@@ -46,8 +46,6 @@ export interface VoiceOverlayOptions {
   avoidEl?: HTMLElement;
   /** Grow the pane to the viewport bottom (mobile nav takeover, like the composer). */
   extendBottom?: boolean;
-  /** Rolling detector decision trace (beta9 diagnostics). */
-  onDebug?: (msg: string) => void;
   apiBase: string;                 // passed through to the transcript renderer
   cwd: string;
   sessionId?: string;
@@ -103,9 +101,6 @@ export class VoiceOverlay {
   private tapTimer: number | null = null;
   private firstGestureFired = false;
   private destroyed = false;
-
-  /** Rolling decision trace for the on-device debug strip. */
-  private readonly dbg = (m: string): void => this.opts.onDebug?.(m);
 
   constructor(opts: VoiceOverlayOptions) {
     this.opts = opts;
@@ -269,9 +264,9 @@ export class VoiceOverlay {
   // ------------------------------------------------------------------ gestures
 
   private readonly onPointerDown = (e: PointerEvent): void => {
-    if (this.destroyed) return void this.dbg("down:destroyed");
-    if (e.button !== 0) return void this.dbg("down:button");
-    if (this.pointerId !== null) return void this.dbg("down:busy");
+    if (this.destroyed) return;
+    if (e.button !== 0) return;
+    if (this.pointerId !== null) return;
     // Autoplay unlock hook: exactly once, on the first pointer interaction.
     if (!this.firstGestureFired) {
       this.firstGestureFired = true;
@@ -281,14 +276,10 @@ export class VoiceOverlay {
         // autoplay unlock must never take the gesture path down
       }
     }
-    // TEMP breadcrumbs for the iOS gesture spike — remove once validated on device.
-    console.log("[pi-voice] down", e.pointerId);
     // Interactive message content (links, buttons, fields) keeps its own clicks —
     // a tap there must not also be a voice gesture (chat's [data-ui] exclusion).
     const target = e.target;
-    if (target instanceof Element && target.closest("a, button, input, textarea, select"))
-      return void this.dbg("down:excl");
-    this.dbg("down:ok");
+    if (target instanceof Element && target.closest("a, button, input, textarea, select")) return;
     this.pointerId = e.pointerId;
     this.downX = e.clientX;
     this.downY = e.clientY;
@@ -299,7 +290,6 @@ export class VoiceOverlay {
       this.longTimer = null;
       if (this.pointerId === null || this.swiped) return;
       this.longFired = true;
-      this.dbg("timer:long");
       this.handlers.onLongPress();
     }, LONG_PRESS_MS);
   };
@@ -307,7 +297,6 @@ export class VoiceOverlay {
   private readonly onPointerMove = (e: PointerEvent): void => {
     if (e.pointerId !== this.pointerId || this.longFired) return;
     if (Math.hypot(e.clientX - this.downX, e.clientY - this.downY) > DRIFT_PX) {
-      if (!this.swiped) this.dbg("move:swipe");
       this.swiped = true;
       if (this.longTimer !== null) {
         window.clearTimeout(this.longTimer);
@@ -317,13 +306,8 @@ export class VoiceOverlay {
   };
 
   private readonly onPointerUp = (e: PointerEvent): void => {
-    if (e.pointerId !== this.pointerId) return void this.dbg("up:mismatch");
+    if (e.pointerId !== this.pointerId) return;
     this.pointerId = null;
-    console.log(
-      "[pi-voice] up",
-      e.pointerId,
-      this.longFired ? "long" : this.swiped ? "swipe" : this.tapTimer !== null ? "double" : "tap-pending",
-    );
     if (this.longTimer !== null) {
       window.clearTimeout(this.longTimer);
       this.longTimer = null;
@@ -332,33 +316,28 @@ export class VoiceOverlay {
       // Held: the release reports long_release instead of any tap logic —
       // the controller cancels (or has already consumed) the countdown there.
       this.longFired = false;
-      this.dbg("up:long");
       this.handlers.onLongRelease(this.swiped);
       return;
     }
-    if (this.swiped) return void this.dbg("up:swipe"); // scroll / panel gesture, never a tap
+    if (this.swiped) return; // scroll / panel gesture, never a tap
     if (this.tapTimer !== null) {
       // Second pointerup inside the 320 ms window: cancel the pending single
       // tap and fire the double tap.
       window.clearTimeout(this.tapTimer);
       this.tapTimer = null;
-      this.dbg("up:double");
       this.handlers.onDoubleTap();
       return;
     }
     // First clean tap: the SINGLE tap is scheduled at the window's end — a
     // second pointerup before then turns it into a double tap instead.
-    this.dbg("up:tap");
     this.tapTimer = window.setTimeout(() => {
       this.tapTimer = null;
-      this.dbg("timer:tap");
       this.handlers.onTap();
     }, DOUBLE_TAP_MS);
   };
 
   private readonly onPointerCancel = (e: PointerEvent): void => {
-    if (e.pointerId !== this.pointerId) return void this.dbg("up:mismatch");
-    this.dbg("up:cancel");
+    if (e.pointerId !== this.pointerId) return;
     this.pointerId = null;
     if (this.longTimer !== null) {
       window.clearTimeout(this.longTimer);

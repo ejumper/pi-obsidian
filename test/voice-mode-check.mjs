@@ -83,21 +83,13 @@ const step = (ui, ev) => reduceVoiceUi(ui, ev);
 
 // idle
 let r = step(initialVoiceUi, "tap");
-eq(r.action, "replay", "idle tap replays the message");
+eq(r.action, "replay", "idle tap replays (universal pause/play)");
 r = step(initialVoiceUi, "long_press");
-eq(r.action, "start_recording", "idle hold starts recording (walkie-talkie)");
-eq(r.ui.recording, "on", "hold arms recording");
+eq(r.action, "replay", "idle long-press replays");
+r = step(initialVoiceUi, "long_release");
+eq(r.action, null, "idle release does nothing");
 
-// hold cycle: clean release sends, slide-off cancels
-let held = r.ui;
-r = step(held, "long_release");
-eq(r.action, "stop_send", "clean release sends the recording");
-eq(r.ui.recording, "off", "release clears recording");
-r = step(held, "hold_cancel");
-eq(r.action, "discard_recording", "slide-off discards the recording");
-eq(r.ui.recording, "off", "slide-off clears recording");
-
-// recording (double-tap path)
+// recording (double-tap records; tap pauses; long-press discards)
 let rec = step(initialVoiceUi, "double_tap").ui;
 r = step(rec, "tap");
 eq(r.action, "pause_recording", "recording tap pauses");
@@ -109,26 +101,21 @@ r = step(rec, "double_tap");
 eq(r.action, "stop_send", "recording double-tap sends");
 eq(r.ui.recording, "off", "send clears recording");
 
-// run: hold records a follow-up (queued next turn), tap does nothing
+// run: long-press arms the stop-run countdown (held through 3…2…1)
 let run = step(initialVoiceUi, "run_started").ui;
 r = step(run, "tap");
 eq(r.action, null, "working tap does nothing");
 r = step(run, "long_press");
-eq(r.action, "start_recording", "working hold records a follow-up");
+eq(r.action, "show_stop_countdown", "working long-press arms the countdown");
+eq(r.ui.countdown, true, "countdown armed");
 r = step(r.ui, "long_release");
-eq(r.action, "stop_send", "follow-up release sends");
-eq(r.ui.runActive, true, "send does not touch the run");
+eq(r.action, "cancel_stop_countdown", "release cancels the countdown");
+r = step(run, "long_press");
+r = step(r.ui, "countdown_done");
+eq(r.action, "stop_run", "held countdown stops the run");
+eq(r.ui.runActive, true, "run still active until run_ended");
 r = step(r.ui, "run_ended");
 eq(voicePhase(r.ui), "idle", "run_ended returns to idle");
-
-// countdown machinery is still total (armed directly; the STOP button aborts)
-const armed = { ...initialVoiceUi, countdown: true };
-r = step(armed, "long_release");
-eq(r.action, "cancel_stop_countdown", "release cancels a countdown");
-r = step(armed, "hold_cancel");
-eq(r.action, "cancel_stop_countdown", "slide-off cancels a countdown");
-r = step(armed, "countdown_done");
-eq(r.action, "stop_run", "completed countdown stops the run");
 r = step(initialVoiceUi, "countdown_done");
 eq(r.action, null, "stray countdown_done is a no-op");
 
@@ -149,21 +136,20 @@ r = step(play, "double_tap");
 eq(r.action, "stop_playback_start_recording", "playback double-tap records over it");
 eq(r.ui.playback, "off", "recording stops playback");
 r = step(play, "long_press");
-eq(r.action, "stop_playback_start_recording", "hold during playback records over it");
-eq(r.ui.playback, "off", "hold stops playback");
+eq(r.action, "replay", "playback long-press replays");
 
-// overlap priorities: recording wins hold over run; playback supplies the tap
+// overlap priorities: recording wins long-press over run; run wins over playback
 const both = step(
   step(initialVoiceUi, "run_started").ui,
   "playback_started",
 ).ui;
 r = step(both, "long_press");
-eq(r.action, "stop_playback_start_recording", "hold records even mid-run playback");
+eq(r.action, "show_stop_countdown", "run wins long-press over playback");
 r = step(both, "tap");
 eq(r.action, "pause_playback", "tap still pauses the playback");
 const recOverRun = step(run, "double_tap").ui;
 r = step(recOverRun, "long_press");
-eq(r.action, "discard_recording", "recording wins hold over run");
+eq(r.action, "discard_recording", "recording wins long-press over run");
 
 // glow phases
 eq(voicePhase(initialVoiceUi), "idle", "phase: idle");

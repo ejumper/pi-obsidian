@@ -76,21 +76,6 @@ export class ChatView extends ItemView {
   private voiceController: VoiceController | null = null;
   private voiceOverlay: VoiceOverlay | null = null;
   private voiceOn = false;
-  /** Voice debug strip (beta4): on-device diagnostics — see updateVoiceDebug(). */
-  private voiceDebugEl: HTMLElement | null = null;
-  private voiceRawListener: ((e: PointerEvent) => void) | null = null;
-  private voiceDbg = {
-    init: "pending",
-    overlay: "pending",
-    pre: "(not captured)",
-    pane: "(not probed)",
-    det: "-",
-    raw: { down: 0, up: 0, cancel: 0 },
-    handlers: 0,
-    phase: "-",
-    last: "-",
-    err: "-",
-  };
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -134,18 +119,6 @@ export class ChatView extends ItemView {
     this.voiceController?.setVoiceMode(on);
     this.voiceOverlay?.setVisible(on);
     this.composerEl?.toggleClass("pi-voice-hidden", on);
-    if (on) {
-      // Capture the voice-OFF geometry BEFORE activating — the before/after
-      // pair on one screen is the experiment (beta9).
-      this.voiceProbe();
-      this.voiceDbg.pre = this.voiceDbg.pane.split("\n")[0];
-      this.startVoiceRaw();
-      this.updateVoiceDebug();
-      // Stacking probe: what element is physically on top of the pane's center.
-      requestAnimationFrame(() => this.voiceProbe());
-    } else {
-      this.stopVoiceRaw();
-    }
   }
 
   isVoiceMode(): boolean {
@@ -167,35 +140,23 @@ export class ChatView extends ItemView {
         ttsUrl: this.plugin.settings.ttsUrl,
         sttUrl: this.plugin.settings.sttUrl,
         onUi: (phase, countdown) => {
-          this.voiceDbg.phase = countdown !== null ? `${phase}+cd${countdown}` : phase;
-          this.updateVoiceDebug();
           this.voiceOverlay?.setPhase(phase);
           this.voiceOverlay?.setCountdown(countdown);
         },
         onNotice: (message) => {
-          this.voiceDbg.err = message;
-          this.updateVoiceDebug();
           new Notice(`pi: ${message}`, 6000);
         },
       });
-      this.voiceDbg.init = "ok";
-      const h = (name: string, fn: () => void): (() => void) => () => {
-        this.voiceDbg.handlers += 1;
-        this.voiceDbg.last = `handler:${name}`;
-        this.updateVoiceDebug();
-        fn();
-      };
       this.voiceOverlay = new VoiceOverlay({
-        container: this.transcriptEl,
         handlers: {
-          onTap: h("tap", () => this.voiceController?.tap()),
-          onDoubleTap: h("doubleTap", () => this.voiceController?.doubleTap()),
-          onLongPress: h("longPress", () => this.voiceController?.longPress()),
+          onTap: () => this.voiceController?.tap(),
+          onDoubleTap: () => this.voiceController?.doubleTap(),
+          onLongPress: () => this.voiceController?.longPress(),
           onLongRelease: (swiped: boolean) =>
             swiped
-              ? h("holdCancel", () => this.voiceController?.holdCancel())()
-              : h("longRelease", () => this.voiceController?.longRelease())(),
-          onStopRun: h("stopRun", () => this.voiceController?.stopRun()),
+              ? this.voiceController?.holdCancel()
+              : this.voiceController?.longRelease(),
+          onStopRun: () => this.voiceController?.stopRun(),
         },
         onFirstGesture: () => this.voiceController?.unlock(),
         apiBase: this.plugin.getClient(this.instanceId).baseUrl,
@@ -207,103 +168,18 @@ export class ChatView extends ItemView {
         // kept clear of the gesture layer via avoidEl.
         container: this.contentEl,
         extendBottom: Platform.isMobile,
-        avoidEl: this.contentEl.querySelector(".pi-chat-bar") ?? undefined,
-        onDebug: (m: string) => {
-          this.voiceDbg.det = m;
-          this.updateVoiceDebug();
-        },
+        avoidEl: this.contentEl.querySelector<HTMLElement>(".pi-chat-bar") ?? undefined,
       });
-      this.voiceDbg.overlay = "ok";
     } catch (e) {
       // Voice mode is optional sugar — its failure must never take the chat down.
-      const msg = e instanceof Error ? (e.stack ?? e.message) : String(e);
       console.error("pi-obsidian voice init failed:", e);
-      this.voiceDbg.init = "FAILED";
-      this.voiceDbg.err = msg.split("\n")[0];
-      new Notice(`pi voice init failed — ${this.voiceDbg.err}`, 10000);
+      new Notice(
+        `pi voice init failed — ${e instanceof Error ? e.message : String(e)}`,
+        10000,
+      );
       this.voiceController = null;
       this.voiceOverlay = null;
     }
-    this.updateVoiceDebug();
-  }
-
-  /** Raw pointer census in CAPTURE phase — sees events before anything can eat
-   *  them. If `down` stays 0 while you touch, delivery itself is the problem; if
-   *  it counts but `handlers` stays 0, the detector/exclusion is eating them. */
-  private startVoiceRaw(): void {
-    if (this.voiceRawListener) return;
-    this.voiceRawListener = (e: PointerEvent) => {
-      if (e.type === "pointerdown") this.voiceDbg.raw.down += 1;
-      else if (e.type === "pointerup") this.voiceDbg.raw.up += 1;
-      else this.voiceDbg.raw.cancel += 1;
-      const t = e.target;
-      const tag =
-        t instanceof Element
-          ? `${t.tagName.toLowerCase()}${typeof t.className === "string" && t.className ? "." + t.className.split(" ")[0] : ""}`
-          : "?";
-      const excluded = t instanceof Element && !!t.closest("a, button, input, textarea, select");
-      this.voiceDbg.last =
-        `${e.type}@${Math.round(e.clientX)},${Math.round(e.clientY)}→${tag}${excluded ? " [EXCL]" : ""}`;
-      this.updateVoiceDebug();
-    };
-    for (const t of ["pointerdown", "pointerup", "pointercancel"])
-      window.addEventListener(t, this.voiceRawListener, true);
-  }
-
-  private stopVoiceRaw(): void {
-    if (!this.voiceRawListener) return;
-    for (const t of ["pointerdown", "pointerup", "pointercancel"])
-      window.removeEventListener(t, this.voiceRawListener, true);
-    this.voiceRawListener = null;
-  }
-
-  /** Coordinate-system probe (beta7): measures pane + transcript + every
-   *  viewport layer. iOS landscape pans the visual viewport inside a larger
-   *  layout viewport, so rects/events/elementFromPoint can disagree with what
-   *  is on screen — these numbers say which system is lying. Runs on every
-   *  debug refresh so values are fresh at touch time. */
-  private voiceProbe(): void {
-    this.voiceOverlay?.syncPosition();
-    const desc = (t: Element | null): string =>
-      t
-        ? `${t.tagName.toLowerCase()}${typeof t.className === "string" && t.className ? "." + t.className.split(" ")[0] : ""}`
-        : "?";
-    const rectDesc = (r: DOMRect, probe: boolean): string => {
-      const cx = Math.round(r.left + r.width / 2);
-      const cy = Math.round(r.top + r.height / 2);
-      return (
-        `${Math.round(r.width)}x${Math.round(r.height)}@${cx},${cy}` +
-        (probe ? ` top=${desc(document.elementFromPoint(cx, cy))}` : "")
-      );
-    };
-    const vv = window.visualViewport;
-    const tx = this.transcriptEl;
-    const el = this.voiceOverlay?.el;
-    this.voiceDbg.pane = el
-      ? `pane ${rectDesc(el.getBoundingClientRect(), true)}\n` +
-        `tx ${rectDesc(tx.getBoundingClientRect(), true)} pos=${getComputedStyle(tx).position} scr=${tx.scrollLeft},${tx.scrollTop}\n` +
-        `ct ${rectDesc(this.contentEl.getBoundingClientRect(), false)}\n` +
-        `win ${window.innerWidth}x${window.innerHeight}` +
-        (vv
-          ? ` vv ${Math.round(vv.width)}x${Math.round(vv.height)}@${Math.round(vv.offsetLeft)},${Math.round(vv.offsetTop)} x${vv.scale.toFixed(2)}`
-          : " vv -")
-      : "(no overlay)";
-  }
-
-  private updateVoiceDebug(): void {
-    const el = this.voiceDebugEl;
-    if (!el) return;
-    this.voiceProbe();
-    const d = this.voiceDbg;
-    el.setText(
-      `voice debug ${BUILD_ID} | init:${d.init} overlay:${d.overlay}\n` +
-      `pre(off) ${d.pre}\n` +
-      `${d.pane}\n` +
-      `det ${d.det}\n` +
-      `raw: down ${d.raw.down} up ${d.raw.up} cancel ${d.raw.cancel} | handlers ${d.handlers}\n` +
-      `phase: ${d.phase} | last: ${d.last}\n` +
-      `err: ${d.err}`,
-    );
   }
 
   private createStore(): AgentStore {
@@ -414,7 +290,6 @@ export class ChatView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    this.stopVoiceRaw();
     this.voiceController?.destroy();
     this.voiceOverlay?.destroy();
     this.unsubscribe?.();
@@ -455,9 +330,6 @@ export class ChatView extends ItemView {
 
     // Transcript (middle).
     this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
-    // Voice debug strip: lives OUTSIDE the overlay so it survives an overlay
-    // failure — the whole point is diagnosing one.
-    this.voiceDebugEl = root.createEl("pre", { cls: "pi-voice-debug" });
 
     // Composer block: body-attached + fixed (screen geometry — see styles.css).
     const composer = document.body.createDiv({ cls: "pi-chat-composer" });
