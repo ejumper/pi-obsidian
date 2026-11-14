@@ -196,6 +196,12 @@ export class ChatView extends ItemView {
         apiBase: this.plugin.getClient(this.instanceId).baseUrl,
         cwd: this.store.state.cwd,
         sessionId: this.store.state.sessionId ?? undefined,
+        // beta8: pin to the CONTENT area, not the transcript — the transcript's
+        // box is a ~108px band on mobile while its content flows past it; the
+        // finger was landing ~400px below the gesture surface. The title bar is
+        // kept clear of the gesture layer via avoidEl.
+        container: this.contentEl,
+        avoidEl: this.contentEl.querySelector(".pi-chat-bar") ?? undefined,
       });
       this.voiceDbg.overlay = "ok";
     } catch (e) {
@@ -266,6 +272,7 @@ export class ChatView extends ItemView {
     this.voiceDbg.pane = el
       ? `pane ${rectDesc(el.getBoundingClientRect(), true)}\n` +
         `tx ${rectDesc(tx.getBoundingClientRect(), true)} pos=${getComputedStyle(tx).position} scr=${tx.scrollLeft},${tx.scrollTop}\n` +
+        `ct ${rectDesc(this.contentEl.getBoundingClientRect(), false)}\n` +
         `win ${window.innerWidth}x${window.innerHeight}` +
         (vv
           ? ` vv ${Math.round(vv.width)}x${Math.round(vv.height)}@${Math.round(vv.offsetLeft)},${Math.round(vv.offsetTop)} x${vv.scale.toFixed(2)}`

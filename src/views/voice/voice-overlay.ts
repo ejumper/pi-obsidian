@@ -42,6 +42,8 @@ export interface VoiceOverlayOptions {
   container: HTMLElement;          // the transcript container element to overlay
   handlers: VoiceOverlayHandlers;
   onFirstGesture?: () => void;     // fire once on the first pointer interaction (autoplay unlock)
+  /** Title-bar element — kept clear of the gesture layer's tap surface. */
+  avoidEl?: HTMLElement;
   apiBase: string;                 // passed through to the transcript renderer
   cwd: string;
   sessionId?: string;
@@ -247,6 +249,12 @@ export class VoiceOverlay {
     this.el.style.top = `${Math.round(r.top)}px`;
     this.el.style.width = `${Math.round(r.width)}px`;
     this.el.style.height = `${Math.round(r.height)}px`;
+    // Keep the gesture surface clear of the title bar (back button, rename).
+    const avoid = this.opts.avoidEl;
+    if (avoid) {
+      const clearance = Math.max(0, Math.round(avoid.getBoundingClientRect().bottom - r.top));
+      this.gesturesEl.style.top = `${clearance}px`;
+    }
   }
 
   // ------------------------------------------------------------------ gestures
