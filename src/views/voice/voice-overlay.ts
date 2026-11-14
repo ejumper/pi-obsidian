@@ -244,8 +244,13 @@ export class VoiceOverlay {
   private readonly onContainerScroll = (): void => this.syncPosition();
 
   private syncPosition(): void {
-    const top = this.opts.container.scrollTop;
-    this.el.style.transform = top > 0 ? `translateY(${top}px)` : "";
+    // The pane is an abspos child of the transcript's SCROLL container, so it
+    // rides the content: counter BOTH scroll axes in viewport terms. (beta5:
+    // a horizontal content pan once slid the pane clean off-screen — see the
+    // beta4 debug readout: pane@-133 with touches falling through underneath.)
+    const { scrollTop, scrollLeft } = this.opts.container;
+    this.el.style.transform =
+      scrollTop || scrollLeft ? `translate(${scrollLeft}px, ${scrollTop}px)` : "";
   }
 
   // ------------------------------------------------------------------ gestures

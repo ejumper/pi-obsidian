@@ -1524,3 +1524,10 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   white-space: pre-wrap;
   border-radius: 6px;
 }
+
+/* Transcript scrolls vertically ONLY (beta5): horizontal content overflow let
+   finger pans scroll the pane's positioning context sideways — the voice
+   overlay (abspos child) slid off-screen with it and gestures went dead. */
+.pi-chat-transcript {
+  overflow-x: hidden;
+}
