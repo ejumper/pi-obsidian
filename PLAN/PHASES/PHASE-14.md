@@ -90,6 +90,12 @@ content is structurally indistinguishable from typed input, exactly like read-mo
 
 ### 1.2 Gesture state machine
 
+> **beta3 revision (2026-11-13, user direction):** the record trigger is a HOLD (walkie-talkie)
+> — less ambiguous than double-tap in a car: hold 1 s = record, clean release = send, slide-off
+> (>12 px) = cancel. Tap in idle = replay. The stop-run countdown long-press is replaced by a
+> **visible STOP button** in the overlay (shown while the agent runs). Double-tap stays as a
+> secondary record/send path. The table below is the original beta1 design, kept for the record.
+
 Timings ported from `/chat` (driving-tested): double-tap window 320 ms, long-press 1 000 ms,
 movement > 12 px cancels. **Scoped to the overlay only** (never page-wide — we don't own
 Obsidian). `touch-action: manipulation` kills iOS double-tap zoom.

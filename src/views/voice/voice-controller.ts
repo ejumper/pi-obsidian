@@ -130,6 +130,16 @@ export class VoiceController {
     this.dispatch("long_release");
   }
 
+  /** Slide-off during a hold — discard the recording. */
+  holdCancel(): void {
+    this.dispatch("hold_cancel");
+  }
+
+  /** Visible STOP button (beta3): abort the run — the hold gesture now records. */
+  stopRun(): void {
+    void this.opts.store.abort();
+  }
+
   destroy(): void {
     this.unsub?.();
     this.unsub = null;

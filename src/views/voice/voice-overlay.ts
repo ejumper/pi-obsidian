@@ -32,7 +32,10 @@ export interface VoiceOverlayHandlers {
   onTap(): void;
   onDoubleTap(): void;
   onLongPress(): void;
-  onLongRelease(): void;
+  /** Clean release after a hold (swiped=false) or slide-off cancel (swiped=true). */
+  onLongRelease(swiped: boolean): void;
+  /** Visible STOP button (the hold gesture records now, so stop-run lives here). */
+  onStopRun?: () => void;
 }
 
 export interface VoiceOverlayOptions {
@@ -78,6 +81,7 @@ export class VoiceOverlay {
   private readonly gesturesEl: HTMLElement;
   private readonly msgEl: HTMLElement;
   private readonly countdownEl: HTMLElement;
+  private readonly stopEl: HTMLElement;
   private readonly renderer: TranscriptRenderer;
   /** Container's inline position before we made it the pane's containing block. */
   private readonly prevContainerPosition: string;
@@ -119,11 +123,20 @@ export class VoiceOverlay {
 
     const countdown = div("pi-voice-countdown");
 
-    pane.append(glow, gestures, countdown);
+    const stop = document.createElement("button");
+    stop.className = "pi-voice-stop";
+    stop.textContent = "Stop";
+    stop.setAttribute("aria-label", "Stop the running agent");
+    stop.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.handlers.onStopRun?.();
+    });
+    pane.append(glow, gestures, countdown, stop);
     this.el = pane;
     this.gesturesEl = gestures;
     this.msgEl = msg;
     this.countdownEl = countdown;
+    this.stopEl = stop;
 
     // ---- containment: pane covers the container exactly ----
     const container = opts.container;
@@ -166,6 +179,8 @@ export class VoiceOverlay {
   setPhase(phase: VoiceGlowPhase): void {
     for (const p of GLOW_PHASES) this.el.classList.remove(`pi-voice-phase-${p}`);
     this.el.classList.add(`pi-voice-phase-${phase}`);
+    // The STOP button only exists while the agent runs (hold records now).
+    this.stopEl.style.display = phase === "working" ? "" : "none";
   }
 
   /** null hides; 3/2/1 shows "Stopping run in 3…". The controller ticks it —
@@ -293,7 +308,7 @@ export class VoiceOverlay {
       // Held: the release reports long_release instead of any tap logic —
       // the controller cancels (or has already consumed) the countdown there.
       this.longFired = false;
-      this.handlers.onLongRelease();
+      this.handlers.onLongRelease(this.swiped);
       return;
     }
     if (this.swiped) return; // scroll / panel gesture, never a tap

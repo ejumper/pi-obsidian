@@ -1487,3 +1487,21 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   padding: 12px 14px;
   pointer-events: auto;
 }
+
+/* Voice-mode STOP button (beta3): visible stop-run control — the hold gesture
+   records now, so the countdown long-press is gone. Pane is pointer-events:
+   none, so the button re-enables its own. Shown only while the agent runs. */
+.pi-voice-stop {
+  position: absolute;
+  top: 12px;
+  right: 40px;
+  z-index: 60;
+  pointer-events: auto;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid #A8001C;
+  background: #A8001C !important;
+  color: #ffffff;
+  font-weight: 600;
+  display: none;
+}

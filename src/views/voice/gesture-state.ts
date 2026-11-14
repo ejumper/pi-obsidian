@@ -24,6 +24,7 @@ export type VoiceEvent =
   | "double_tap"
   | "long_press"
   | "long_release"
+  | "hold_cancel"
   | "countdown_done"
   | "run_started"
   | "run_ended"
@@ -69,8 +70,18 @@ export function reduceVoiceUi(
       if (!ui.countdown) return { ui, action: null };
       return { ui: { ...ui, countdown: false }, action: "stop_run" };
     case "long_release":
+      // Walkie-talkie (beta3 remap): a clean release after a hold sends the
+      // recording — the hold started it, the release completes it.
+      if (ui.recording !== "off")
+        return { ui: { ...ui, recording: "off" }, action: "stop_send" };
       if (!ui.countdown) return { ui, action: null };
       return { ui: { ...ui, countdown: false }, action: "cancel_stop_countdown" };
+    case "hold_cancel":
+      // Slide-off cancels (walkie-talkie standard): discard the recording.
+      if (ui.recording !== "off")
+        return { ui: { ...ui, recording: "off" }, action: "discard_recording" };
+      if (ui.countdown) return { ui: { ...ui, countdown: false }, action: "cancel_stop_countdown" };
+      return { ui, action: null };
     case "tap":
       if (ui.recording === "on")
         return { ui: { ...ui, recording: "paused" }, action: "pause_recording" };
@@ -80,7 +91,9 @@ export function reduceVoiceUi(
         return { ui: { ...ui, playback: "paused" }, action: "pause_playback" };
       if (ui.playback === "paused")
         return { ui: { ...ui, playback: "on" }, action: "resume_playback" };
-      return { ui, action: null };
+      // Nothing active: tap = play (replay the message on screen) — the
+      // universal pause/play rule. A live run has nothing to replay to.
+      return { ui, action: ui.runActive ? null : "replay" };
     case "double_tap":
       if (ui.recording !== "off")
         return { ui: { ...ui, recording: "off" }, action: "stop_send" };
@@ -94,11 +107,19 @@ export function reduceVoiceUi(
         action: "start_recording",
       };
     case "long_press":
+      // Hold-to-talk (beta3 remap): holding RECORDS — unambiguous input for a
+      // car. Release sends (long_release), slide-off cancels (hold_cancel).
       if (ui.recording !== "off")
         return { ui: { ...ui, recording: "off" }, action: "discard_recording" };
-      if (ui.runActive)
-        return { ui: { ...ui, countdown: true }, action: "show_stop_countdown" };
-      return { ui, action: "replay" };
+      if (ui.playback !== "off")
+        return {
+          ui: { ...ui, playback: "off", recording: "on", countdown: false },
+          action: "stop_playback_start_recording",
+        };
+      return {
+        ui: { ...ui, recording: "on", countdown: false },
+        action: "start_recording",
+      };
     default:
       return { ui, action: null };
   }

@@ -151,7 +151,9 @@ export class ChatView extends ItemView {
           onTap: () => this.voiceController?.tap(),
           onDoubleTap: () => this.voiceController?.doubleTap(),
           onLongPress: () => this.voiceController?.longPress(),
-          onLongRelease: () => this.voiceController?.longRelease(),
+          onLongRelease: (swiped: boolean) =>
+            swiped ? this.voiceController?.holdCancel() : this.voiceController?.longRelease(),
+          onStopRun: () => this.voiceController?.stopRun(),
         },
         onFirstGesture: () => this.voiceController?.unlock(),
         apiBase: this.plugin.getClient(this.instanceId).baseUrl,
