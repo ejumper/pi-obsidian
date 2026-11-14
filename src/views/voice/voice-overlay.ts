@@ -104,6 +104,7 @@ export class VoiceOverlay {
   private readonly msgEl: HTMLElement;
   private readonly countdownEl: HTMLElement;
   private readonly stopEl: HTMLElement;
+  private readonly glowEl: HTMLElement;
   private readonly renderer: TranscriptRenderer;
   /** Container's viewport rect is re-read by syncPosition() — the pane is a
    *  body-attached fixed layer (the composer's pattern), not a child of the
@@ -124,10 +125,12 @@ export class VoiceOverlay {
     this.opts = opts;
     this.handlers = opts.handlers;
 
-    // ---- DOM: pane > glow (rings + arc) / gestures(> msg) / countdown ----
-    const pane = div("pi-voice-pane pi-voice-phase-idle");
+    // ---- DOM: pane > gestures(> msg) / countdown / stop; glow is a SEPARATE
+    // body-level layer (beta18) so it can sit above the app header — inside the
+    // pane's stacking context the header painted over the frame's top edge ----
+    const pane = div("pi-voice-pane");
 
-    const glow = div("pi-voice-glow");
+    const glow = div("pi-voice-glow pi-voice-phase-idle");
     const edge = div("pi-voice-glow-edge");
     const wide = div("pi-voice-glow-layer pi-voice-glow-layer--wide");
     wide.append(div("pi-voice-glow-ring"));
@@ -154,8 +157,10 @@ export class VoiceOverlay {
       e.stopPropagation();
       this.handlers.onStopRun?.();
     });
-    pane.append(glow, gestures, countdown, stop);
+    pane.append(gestures, countdown, stop);
+    document.body.appendChild(glow);
     this.el = pane;
+    this.glowEl = glow;
     this.gesturesEl = gestures;
     this.msgEl = msg;
     this.countdownEl = countdown;
@@ -196,10 +201,10 @@ export class VoiceOverlay {
   /** Glow state machine: one `pi-voice-phase-<phase>` class on the pane; the
    *  stylesheet carries the color × mode mapping (chat parity). */
   setPhase(phase: VoiceGlowPhase): void {
-    for (const p of GLOW_PHASES) this.el.classList.remove(`pi-voice-phase-${p}`);
-    this.el.classList.add(`pi-voice-phase-${phase}`);
+    for (const p of GLOW_PHASES) this.glowEl.classList.remove(`pi-voice-phase-${p}`);
+    this.glowEl.classList.add(`pi-voice-phase-${phase}`);
     // chat-parity: connecting/synthesis trail the traveling arc around the border
-    this.el.classList.toggle(
+    this.glowEl.classList.toggle(
       "pi-voice-glow-arc-on",
       phase === "connecting" || phase === "synthesizing",
     );
@@ -257,6 +262,7 @@ export class VoiceOverlay {
     this.tapTimer = null;
     this.renderer.unmount();
     this.el.remove();
+    this.glowEl.remove();
   }
 
   // ------------------------------------------------------------------ geometry

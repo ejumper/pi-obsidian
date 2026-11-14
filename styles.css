@@ -1283,6 +1283,9 @@ body.is-mobile .pi-voice-glow {
   inset: 2px;
   border-radius: 52px;
   --pi-voice-glow-radius: 52px;
+  /* Above the app header so the frame's top edge and corners are fully visible
+     (beta18); pointer-events: none keeps every tap flowing underneath. */
+  z-index: 250;
 }
 
 .pi-voice-glow-edge {
@@ -1377,7 +1380,7 @@ body.is-mobile .pi-voice-glow {
     color-mix(in oklab, var(--pi-voice-glow-color) 86%, #8f7bff) 70%,
     color-mix(in oklab, var(--pi-voice-glow-color) 80%, #57c8ff) 100%);
 }
-.pi-voice-pane.pi-voice-glow-arc-on .pi-voice-glow-arc {
+.pi-voice-glow.pi-voice-glow-arc-on .pi-voice-glow-arc {
   opacity: 1;
   -webkit-mask-image: conic-gradient(from var(--pi-voice-glow-angle),
     transparent 0deg,
@@ -1402,21 +1405,21 @@ body.is-mobile .pi-voice-glow {
 
 /* ── Phase machine: colors (chat GLOW_COLORS) × modes ───────────────────── */
 
-.pi-voice-pane.pi-voice-phase-recording,
-.pi-voice-pane.pi-voice-phase-recording_paused {
+.pi-voice-glow.pi-voice-phase-recording,
+.pi-voice-glow.pi-voice-phase-recording_paused {
   --pi-voice-glow-color: #ff453a; /* red */
 }
-.pi-voice-pane.pi-voice-phase-working {
+.pi-voice-glow.pi-voice-phase-working {
   --pi-voice-glow-color: #f2f2f7; /* white */
 }
-.pi-voice-pane.pi-voice-phase-connecting {
+.pi-voice-glow.pi-voice-phase-connecting {
   --pi-voice-glow-color: #f2f2f7; /* white (arc) */
 }
-.pi-voice-pane.pi-voice-phase-synthesizing {
+.pi-voice-glow.pi-voice-phase-synthesizing {
   --pi-voice-glow-color: #32d74b; /* green (arc) */
 }
-.pi-voice-pane.pi-voice-phase-playing,
-.pi-voice-pane.pi-voice-phase-playing_paused {
+.pi-voice-glow.pi-voice-phase-playing,
+.pi-voice-glow.pi-voice-phase-playing_paused {
   --pi-voice-glow-color: #32d74b; /* green */
 }
 /* idle keeps the base transparent color; the edge is switched off below */
