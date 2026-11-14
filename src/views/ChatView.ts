@@ -137,22 +137,7 @@ export class ChatView extends ItemView {
       this.startVoiceRaw();
       this.updateVoiceDebug();
       // Stacking probe: what element is physically on top of the pane's center.
-      requestAnimationFrame(() => {
-        this.voiceOverlay?.syncPosition();
-        const el = this.voiceOverlay?.el;
-        if (!el) return;
-        const r = el.getBoundingClientRect();
-        const cs = getComputedStyle(el);
-        const cx = Math.round(r.left + r.width / 2);
-        const cy = Math.round(r.top + r.height / 2);
-        const top = document.elementFromPoint(cx, cy);
-        const topDesc = top
-          ? `${top.tagName.toLowerCase()}.${typeof top.className === "string" ? top.className.split(" ")[0] : ""}`
-          : "?";
-        this.voiceDbg.pane =
-          `pane:${cs.display} ${Math.round(r.width)}x${Math.round(r.height)}@${cx},${cy} top=${topDesc}`;
-        this.updateVoiceDebug();
-      });
+      requestAnimationFrame(() => this.voiceProbe());
     } else {
       this.stopVoiceRaw();
     }
@@ -256,9 +241,42 @@ export class ChatView extends ItemView {
     this.voiceRawListener = null;
   }
 
+  /** Coordinate-system probe (beta7): measures pane + transcript + every
+   *  viewport layer. iOS landscape pans the visual viewport inside a larger
+   *  layout viewport, so rects/events/elementFromPoint can disagree with what
+   *  is on screen — these numbers say which system is lying. Runs on every
+   *  debug refresh so values are fresh at touch time. */
+  private voiceProbe(): void {
+    this.voiceOverlay?.syncPosition();
+    const desc = (t: Element | null): string =>
+      t
+        ? `${t.tagName.toLowerCase()}${typeof t.className === "string" && t.className ? "." + t.className.split(" ")[0] : ""}`
+        : "?";
+    const rectDesc = (r: DOMRect, probe: boolean): string => {
+      const cx = Math.round(r.left + r.width / 2);
+      const cy = Math.round(r.top + r.height / 2);
+      return (
+        `${Math.round(r.width)}x${Math.round(r.height)}@${cx},${cy}` +
+        (probe ? ` top=${desc(document.elementFromPoint(cx, cy))}` : "")
+      );
+    };
+    const vv = window.visualViewport;
+    const tx = this.transcriptEl;
+    const el = this.voiceOverlay?.el;
+    this.voiceDbg.pane = el
+      ? `pane ${rectDesc(el.getBoundingClientRect(), true)}\n` +
+        `tx ${rectDesc(tx.getBoundingClientRect(), true)} pos=${getComputedStyle(tx).position} scr=${tx.scrollLeft},${tx.scrollTop}\n` +
+        `win ${window.innerWidth}x${window.innerHeight}` +
+        (vv
+          ? ` vv ${Math.round(vv.width)}x${Math.round(vv.height)}@${Math.round(vv.offsetLeft)},${Math.round(vv.offsetTop)} x${vv.scale.toFixed(2)}`
+          : " vv -")
+      : "(no overlay)";
+  }
+
   private updateVoiceDebug(): void {
     const el = this.voiceDebugEl;
     if (!el || !this.voiceOn) return;
+    this.voiceProbe();
     const d = this.voiceDbg;
     el.setText(
       `voice debug ${BUILD_ID} | init:${d.init} overlay:${d.overlay}\n` +
