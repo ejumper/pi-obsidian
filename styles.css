@@ -1275,10 +1275,11 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   --pi-voice-glow-radius: 0px;
 }
 
-/* iPhone bottom-curve clearance (beta14): the glow frame stops short of the
-   screen edge so the halo isn't clipped by the display's rounded corners. */
+/* iPhone bottom-curve clearance (beta16): device-correct via safe-area — the
+   15 Pro's 34pt home-indicator zone + 12px puts the frame corner visibly
+   inside the display's ~55pt corner radius; env() tracks every device. */
 body.is-mobile .pi-voice-glow {
-  bottom: 18px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
 }
 
 .pi-voice-glow-edge {
@@ -1288,6 +1289,19 @@ body.is-mobile .pi-voice-glow {
      frames the pane with a soft inward falloff. */
   position: absolute;
   inset: -56px;
+  /* Animated conic sweep (the webbae/Kevin Powell gradient-border recipe):
+     symmetric stops so the rotation loops seamlessly; both ring layers sample
+     it so the crisp line and its halo shimmer in step. */
+  --pi-voice-glow-conic: conic-gradient(
+    from var(--pi-voice-glow-angle),
+    color-mix(in oklab, var(--pi-voice-glow-color) 86%, #ffb36b),
+    var(--pi-voice-glow-color),
+    color-mix(in oklab, var(--pi-voice-glow-color) 88%, #8f7bff),
+    color-mix(in oklab, var(--pi-voice-glow-color) 82%, #57c8ff),
+    color-mix(in oklab, var(--pi-voice-glow-color) 88%, #8f7bff),
+    var(--pi-voice-glow-color),
+    color-mix(in oklab, var(--pi-voice-glow-color) 86%, #ffb36b)
+  );
 }
 
 .pi-voice-glow-layer {
@@ -1317,33 +1331,28 @@ body.is-mobile .pi-voice-glow {
   mask-composite: exclude;
 }
 
-/* wide halo: softer, tighter falloff (beta14: less blur and less inward reach
-   than the original 24px/20px — subtly glowier, less foggy) */
+/* wide halo: the blurred duplicate — the article's ::after role. Soft, tight,
+   and it tracks the same conic sweep as the crisp line. */
 .pi-voice-glow-layer--wide {
-  --pi-voice-glow-w: 14px;
-  --pi-voice-glow-blur: 10px;
-  --pi-voice-glow-op: 0.7;
+  --pi-voice-glow-w: 12px;
+  --pi-voice-glow-blur: 14px;
+  --pi-voice-glow-op: 0.55;
 }
 .pi-voice-glow-layer--wide .pi-voice-glow-ring {
-  background: linear-gradient(115deg,
-    color-mix(in oklab, var(--pi-voice-glow-color) 84%, #ffb36b) 0%,
-    color-mix(in oklab, var(--pi-voice-glow-color) 88%, #8f7bff) 55%,
-    color-mix(in oklab, var(--pi-voice-glow-color) 82%, #57c8ff) 100%);
+  background: var(--pi-voice-glow-conic);
+  animation: pi-voice-glow-spin 6s linear infinite;
 }
 
-/* core band: the bright body of the glow — crisp line (beta14: no blur),
-   with only a faint drop-shadow so the halo layer does the softening */
+/* core band: the crisp line — the article's ::before role. 2px, no blur, a
+   faint drop-shadow for lift; the slow conic sweep is the refinement. */
 .pi-voice-glow-layer--core {
-  --pi-voice-glow-w: 6px;
+  --pi-voice-glow-w: 2px;
   --pi-voice-glow-blur: 0px;
 }
 .pi-voice-glow-layer--core .pi-voice-glow-ring {
-  filter: drop-shadow(0 0 8px var(--pi-voice-glow-color, transparent));
-  background: linear-gradient(115deg,
-    color-mix(in oklab, var(--pi-voice-glow-color) 82%, #ffb36b) 0%,
-    var(--pi-voice-glow-color) 36%,
-    color-mix(in oklab, var(--pi-voice-glow-color) 86%, #8f7bff) 70%,
-    color-mix(in oklab, var(--pi-voice-glow-color) 80%, #57c8ff) 100%);
+  filter: drop-shadow(0 0 9px var(--pi-voice-glow-color, transparent));
+  background: var(--pi-voice-glow-conic);
+  animation: pi-voice-glow-spin 6s linear infinite;
 }
 
 /* The soft conic-gradient arc segment (chat's connecting/synthesis band).
@@ -1422,7 +1431,7 @@ body.is-mobile .pi-voice-glow {
   animation: pi-voice-glow-amp-pulse 1.6s ease-in-out infinite;
 }
 .pi-voice-phase-playing .pi-voice-glow-layer--core {
-  --pi-voice-glow-w: calc(6px + 3px * var(--pi-voice-glow-amp, 0.4));
+  --pi-voice-glow-w: calc(2px + 2px * var(--pi-voice-glow-amp, 0.4));
 }
 
 .pi-voice-phase-idle .pi-voice-glow-edge {
