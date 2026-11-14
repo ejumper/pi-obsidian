@@ -776,7 +776,9 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
 }
 
 .pi-panel-controls .pi-pill {
-  flex: 1;
+  /* Natural width (beta14): the row carries the voice-mode button now, and the
+     pill had width to spare. */
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -1273,6 +1275,12 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   --pi-voice-glow-radius: 0px;
 }
 
+/* iPhone bottom-curve clearance (beta14): the glow frame stops short of the
+   screen edge so the halo isn't clipped by the display's rounded corners. */
+body.is-mobile .pi-voice-glow {
+  bottom: 18px;
+}
+
 .pi-voice-glow-edge {
   /* Oversize box (chat parity): the layers below sit flush with the pane via
      inset: 56px so the blur spills freely instead of clipping to the ring
@@ -1309,11 +1317,12 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
   mask-composite: exclude;
 }
 
-/* wide halo: long soft falloff, slight warm→cool drift along its length */
+/* wide halo: softer, tighter falloff (beta14: less blur and less inward reach
+   than the original 24px/20px — subtly glowier, less foggy) */
 .pi-voice-glow-layer--wide {
-  --pi-voice-glow-w: 24px;
-  --pi-voice-glow-blur: 20px;
-  --pi-voice-glow-op: 0.8;
+  --pi-voice-glow-w: 14px;
+  --pi-voice-glow-blur: 10px;
+  --pi-voice-glow-op: 0.7;
 }
 .pi-voice-glow-layer--wide .pi-voice-glow-ring {
   background: linear-gradient(115deg,
@@ -1322,13 +1331,14 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
     color-mix(in oklab, var(--pi-voice-glow-color) 82%, #57c8ff) 100%);
 }
 
-/* core band: the bright body of the glow */
+/* core band: the bright body of the glow — crisp line (beta14: no blur),
+   with only a faint drop-shadow so the halo layer does the softening */
 .pi-voice-glow-layer--core {
   --pi-voice-glow-w: 6px;
-  --pi-voice-glow-blur: 3px;
+  --pi-voice-glow-blur: 0px;
 }
 .pi-voice-glow-layer--core .pi-voice-glow-ring {
-  filter: drop-shadow(0 0 12px var(--pi-voice-glow-color, transparent));
+  filter: drop-shadow(0 0 8px var(--pi-voice-glow-color, transparent));
   background: linear-gradient(115deg,
     color-mix(in oklab, var(--pi-voice-glow-color) 82%, #ffb36b) 0%,
     var(--pi-voice-glow-color) 36%,
@@ -1518,4 +1528,15 @@ body.is-mobile .pi-chat-composer:not(.pi-kb-open) {
    overlay (abspos child) slid off-screen with it and gestures went dead. */
 .pi-chat-transcript {
   overflow-x: hidden;
+}
+
+/* Voice pane is display-only (beta14): no copy/action buttons in the overlay. */
+.pi-voice-msg button {
+  display: none;
+}
+
+/* Round panel buttons (voice-mode toggle) active state. */
+.pi-panel-controls .pi-panel-btn.is-active {
+  background: var(--interactive-accent) !important;
+  color: var(--text-on-accent) !important;
 }

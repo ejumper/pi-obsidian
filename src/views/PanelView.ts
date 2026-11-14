@@ -112,22 +112,7 @@ export class PanelView extends ItemView {
     this.machinePill = machinePill;
     root.createDiv({ cls: "pi-panel-settings" }).appendChild(machinePill.el);
 
-    // Voice-mode button (PHASE-14): big tap row for driving — toggles the
-    // focused pi tab's hands-free overlay.
-    const voiceBtn = root.createEl("button", {
-      cls: "pi-panel-voice-btn",
-      attr: { "aria-label": "Voice mode — hands-free; double-tap the overlay to talk" },
-    });
-    setIcon(voiceBtn.createSpan(), "mic");
-    voiceBtn.createSpan({ text: "Voice mode" });
-    voiceBtn.addEventListener("click", () => {
-      void this.plugin
-        .withChatView((v) => v.setVoiceMode(!v.isVoiceMode()))
-        .then(() => this.syncVoiceButton());
-    });
-    this.voiceBtnEl = voiceBtn;
-    root.createDiv({ cls: "pi-panel-settings" }).appendChild(voiceBtn);
-    this.syncVoiceButton();
+
     // Re-sync when the focused pi tab changes, and on pill open — mobile tab
     // switches don't reliably deliver active-leaf-change (see main.ts), so a
     // tap re-reads the focused tab before the user picks a machine.
@@ -200,6 +185,17 @@ export class PanelView extends ItemView {
     });
     this.mentionsPill = mentionsPill;
     controls.appendChild(mentionsPill.el);
+
+    // Voice-mode button (beta14): inline with the controller buttons, right of
+    // the include/exclude pill — a round icon button like its neighbors.
+    const voiceBtn = this.panelButton(controls, "mic", "Voice mode — hands-free");
+    voiceBtn.addEventListener("click", () => {
+      void this.plugin
+        .withChatView((v) => v.setVoiceMode(!v.isVoiceMode()))
+        .then(() => this.syncVoiceButton());
+    });
+    this.voiceBtnEl = voiceBtn;
+    this.syncVoiceButton();
   }
 
   /** Re-sync the mentions pill (icon + label) to plugin settings — load,
@@ -225,8 +221,9 @@ export class PanelView extends ItemView {
         ?.isVoiceMode() ?? false;
     btn.toggleClass("is-active", active);
     btn.empty();
-    setIcon(btn.createSpan(), active ? "mic-off" : "mic");
-    btn.createSpan({ text: active ? "Voice mode on" : "Voice mode" });
+    setIcon(btn, active ? "mic-off" : "mic");
+    btn.setAttribute("aria-label", active ? "Voice mode on — tap to turn off" : "Voice mode — hands-free");
+    btn.setAttribute("title", active ? "Voice mode on" : "Voice mode");
   }
 
   /** Re-sync the machine pill (label + selection) to the focused pi tab's

@@ -71,6 +71,22 @@ const GLOW_PHASES: readonly VoiceGlowPhase[] = [
  *  transitively through Transcript.tsx). */
 type RendererCtx = ConstructorParameters<typeof TranscriptRenderer>[1];
 
+function plainForVoice(m: AgentMessage): AgentMessage {
+  if (m.role !== "assistant") return m;
+  // Voice pane shows the reply TEXT only (beta14): thinking/tool blocks are
+  // dropped and MessageView's chrome disappears with its data — the model label
+  // keys off `provider`, the usage/time footer off `usage` (its JSX
+  // conditionals), so emptying them beats CSS whack-a-mole.
+  return {
+    ...m,
+    content: m.content.filter((b) => b.type === "text"),
+    provider: "",
+    model: "",
+    usage: undefined,
+    timestamp: undefined,
+  };
+}
+
 function div(cls: string): HTMLElement {
   const el = document.createElement("div");
   el.className = cls;
@@ -205,10 +221,10 @@ export class VoiceOverlay {
     if (this.destroyed) return;
     this.renderer.update({
       units: computeTranscriptUnits(
-        msg ? [stripMessageVoiceBlocks(msg)] : [],
+        msg ? [stripMessageVoiceBlocks(plainForVoice(msg))] : [],
         streaming !== null,
       ),
-      streaming: streaming ? stripMessageVoiceBlocks(streaming) : null,
+      streaming: streaming ? stripMessageVoiceBlocks(plainForVoice(streaming)) : null,
       modelNames: {},
       cwd: this.opts.cwd,
       sessionId: this.opts.sessionId,
