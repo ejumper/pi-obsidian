@@ -1367,10 +1367,6 @@ body.is-mobile .pi-voice-glow {
   animation: none;
 }
 
-.pi-voice-glow-breath .pi-voice-glow-layer--wave {
-  display: none;
-}
-
 .pi-voice-glow-breath .pi-voice-glow-layer--strip {
   /* closest to the source: brightness pushes its reach the most */
   --pi-voice-glow-w: calc((7px + 4px * var(--breath)) * var(--pi-voice-glow-scale));

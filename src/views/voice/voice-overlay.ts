@@ -135,18 +135,16 @@ export class VoiceOverlay {
     const glow = div("pi-voice-glow pi-voice-phase-idle");
     const edge = div("pi-voice-glow-edge");
     // LED-anatomy layers (port of glow-effect/*.html, 0.5.0): wash (far faint
-    // falloff), spill (short bright falloff), strip (the bulbs at the edge);
-    // wave is the chaser comet for connecting/synthesizing — the breath recipe
-    // hides it. Recipes and colors live in styles.css.
+    // falloff), spill (short bright falloff), strip (the bulbs at the edge —
+    // the chase recipe's comet IS the strip's gradient, as in the final
+    // loading.html). Recipes and colors live in styles.css.
     const washL = div("pi-voice-glow-layer pi-voice-glow-layer--wash");
     washL.append(div("pi-voice-glow-ring"));
     const spillL = div("pi-voice-glow-layer pi-voice-glow-layer--spill");
     spillL.append(div("pi-voice-glow-ring"));
     const stripL = div("pi-voice-glow-layer pi-voice-glow-layer--strip");
     stripL.append(div("pi-voice-glow-ring"));
-    const waveL = div("pi-voice-glow-layer pi-voice-glow-layer--wave");
-    waveL.append(div("pi-voice-glow-ring"));
-    edge.append(washL, spillL, stripL, waveL);
+    edge.append(washL, spillL, stripL);
     glow.append(edge);
 
     const gestures = div("pi-voice-gestures");

@@ -100,7 +100,10 @@ export class VoiceController {
     this.recorder = new VoiceRecorder({
       url: opts.sttUrl,
       onError: (m) => opts.onNotice?.(`Voice STT — ${m}`),
-      onAmp: opts.onAmp,
+      // Mic amp deliberately NOT wired (user call): the recording glow keeps
+      // the CSS breath — the on-device envelope read as static. The feed path
+      // stays dormant in stt.ts for a future retune (200 ms feed cadence and
+      // mic level vs. gain are the first suspects).
       // 60 s silence / 5 min cap auto-send (pi-voice-chat parity).
       onAutoStop: () => void this.sendRecording(),
     });
