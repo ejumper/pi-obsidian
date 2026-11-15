@@ -3,7 +3,7 @@
 
 import { ItemView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
-import type { AgentMessage, AttachedImageInput } from "../api/types";
+import type { AgentMessage, AttachedImageInput, CustomMessage } from "../api/types";
 import { computeTranscriptUnits } from "./message-display";
 import { stripVoiceBlocks, stripMessageVoiceBlocks } from "./voice/banner-state";
 import { TranscriptRenderer } from "./react/Transcript";
@@ -422,7 +422,13 @@ export class ChatView extends ItemView {
     this.sendBtnEl.addEventListener("click", () => void this.sendCurrent());
 
     this.stopBtnEl = this.runGroupEl.createEl("button", { cls: "pi-stop-btn", text: "Stop" });
-    this.stopBtnEl.addEventListener("click", () => void this.store.abort());
+    this.stopBtnEl.addEventListener("click", () => {
+      // Run Stop doubles as the compaction cancel (0.5.5) — wires the
+      // previously-dead abortCompaction.
+      const s = this.store.state;
+      if (s.agentRunning) void this.store.abort();
+      else if (s.isCompacting) void this.store.abortCompaction();
+    });
 
     this.queueBtnEl = this.iconButton(this.runGroupEl, "arrow-right", "Queue (steer)", ["pi-queue-btn"]);
     this.queueBtnEl.addEventListener("click", () => void this.sendCurrent());
@@ -550,11 +556,14 @@ export class ChatView extends ItemView {
   private updateComposerState(): void {
     const hasText = this.inputEl.value.trim().length > 0;
     const running = this.store.state.agentRunning;
-    this.sendBtnEl.disabled = !hasText;
-    this.queueBtnEl.disabled = !hasText;
+    // Compaction is run-shaped (0.5.5, user spec): sends gray out — steering
+    // would interleave with the summary rewrite — and Stop appears to cancel.
+    const compacting = this.store.state.isCompacting;
+    this.sendBtnEl.disabled = !hasText || compacting;
+    this.queueBtnEl.disabled = !hasText || compacting;
     this.queueBtnEl.classList.toggle("has-text", hasText);
     this.sendGroupEl.style.display = running ? "none" : "";
-    this.runGroupEl.style.display = running ? "" : "none";
+    this.runGroupEl.style.display = running || compacting ? "" : "none";
   }
 
   /** Prefix open-file @mentions (pi-web format) when the panel toggle is on
@@ -798,7 +807,7 @@ export class ChatView extends ItemView {
     this.renderContextSize(s.contextUsage);
     this.renderQueue(s.queuedMessages);
     // Working indicator: bouncing line on the composer's top border (styles.css).
-    this.composerEl.toggleClass("pi-working", s.agentRunning);
+    this.composerEl.toggleClass("pi-working", s.agentRunning || s.isCompacting);
 
     this.modelChipNameEl.setText(
       s.currentModel?.modelId ?? this.plugin.settings.defaultModel?.modelId ?? "model"
@@ -831,12 +840,36 @@ export class ChatView extends ItemView {
     // pi-web's MessageView components render the grouped units (see
     // react/Transcript.tsx + views/message-display.ts).
     this.transcript.update({
-      units: computeTranscriptUnits(s.messages.map(stripMessageVoiceBlocks), s.agentRunning, s.entryIds),
+      units: computeTranscriptUnits(
+        s.messages.map((m, i) => {
+          const stripped = stripMessageVoiceBlocks(m);
+          // Fresh compaction estimate rides on its message for the caret header
+          // (0.5.5): historical blocks fall back to tokensBefore only.
+          if (
+            i === s.messages.length - 1 &&
+            s.compactResult &&
+            stripped.role === "custom" &&
+            (stripped as CustomMessage).customType === "compaction"
+          ) {
+            return {
+              ...stripped,
+              details: {
+                ...((stripped as CustomMessage).details as Record<string, unknown> | undefined),
+                estimatedTokensAfter: s.compactResult.estimatedTokensAfter,
+              },
+            };
+          }
+          return stripped;
+        }),
+        s.agentRunning,
+        s.entryIds,
+      ),
       streaming: s.streamingMessage ? stripMessageVoiceBlocks(s.streamingMessage) : null,
       modelNames: this.modelNames,
       cwd: s.cwd,
       sessionId: s.sessionId ?? undefined,
       runError: s.runError,
+      compacting: s.isCompacting,
       apiBase: this.plugin.getClient(this.instanceId).baseUrl,
       onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
       onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },

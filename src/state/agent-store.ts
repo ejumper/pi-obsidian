@@ -492,7 +492,16 @@ export class AgentStore {
 
   async compact(customInstructions?: string): Promise<void> {
     const sid = this.state.sessionId;
-    if (!sid || this.state.isCompacting) return;
+    // Speak up (0.5.5): these guards used to no-op silently — the compact
+    // button looked dead when a compaction was stuck or no session was bound.
+    if (!sid) {
+      this.hooks.onNotice?.("No session to compact", "warning");
+      return;
+    }
+    if (this.state.isCompacting) {
+      this.hooks.onNotice?.("Compaction already running", "warning");
+      return;
+    }
     this.update({ isCompacting: true, compactError: null, compactResult: null });
     try {
       const result = await this.client.sendCommand(sid, {
@@ -502,7 +511,9 @@ export class AgentStore {
       if (info) this.update({ compactResult: info });
       await this.refreshFromDisk();
     } catch (e) {
-      this.update({ compactError: e instanceof Error ? e.message : String(e) });
+      const msg = e instanceof Error ? e.message : String(e);
+      this.update({ compactError: msg });
+      this.hooks.onNotice?.(`Compaction failed: ${msg}`, "error");
     } finally {
       this.update({ isCompacting: false });
     }
@@ -1089,7 +1100,9 @@ export class AgentStore {
   /** Recovery net for missed SSE events (pi-web's reconcileAgentState). */
   private async reconcile(): Promise<void> {
     const sid = this.state.sessionId;
-    if (!sid || !this.state.agentRunning) return;
+    // Also reconcile while compacting (0.5.5): a missed compaction_end would
+    // otherwise leave isCompacting stuck and every later press no-ops.
+    if (!sid || (!this.state.agentRunning && !this.state.isCompacting)) return;
     const runId = this.runId;
     try {
       const data = await this.client.getState(sid);

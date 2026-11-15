@@ -18,6 +18,7 @@ import type {
   AgentMessage,
   AssistantContentBlock,
   AssistantMessage,
+  CustomMessage,
   ToolResultMessage,
 } from "../api/types";
 
@@ -83,6 +84,14 @@ function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endI
     if (messages[i]?.role === "assistant") return i;
   }
   return -1;
+}
+
+/** pi-obsidian divergence (0.5.5): compaction messages are segment
+ *  BOUNDARIES — they render as their own caret block (user spec) and must
+ *  never fold into a process group. Semantically sound: everything before a
+ *  compaction was summarized away anyway. */
+function isCompactionMessage(message: AgentMessage): boolean {
+  return message.role === "custom" && (message as CustomMessage).customType === "compaction";
 }
 
 function hasDisplayableProcessMessage(message: AgentMessage): boolean {
@@ -156,7 +165,9 @@ export function computeTranscriptUnits(
 
     const userIdx = idx;
     let endIdx = userIdx + 1;
-    while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1;
+    while (endIdx < messages.length && messages[endIdx].role !== "user" && !isCompactionMessage(messages[endIdx])) {
+      endIdx += 1;
+    }
 
     const finalIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
     const isLiveTail = running && endIdx === messages.length;

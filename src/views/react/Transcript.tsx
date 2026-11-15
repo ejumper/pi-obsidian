@@ -30,6 +30,8 @@ export interface TranscriptData {
   apiBase?: string;
   /** Run-ending error shown as red session output (0.4.12) */
   runError?: string | null;
+  /** Live compaction: plain "Compacting..." line at the session tail (0.5.5). */
+  compacting?: boolean;
 }
 
 /** pi-web's rule: only the LAST assistant message of a turn shows the
@@ -78,7 +80,7 @@ function computePrevAssistantEntryIds(units: TranscriptUnit[]): Map<TranscriptUn
   return prev;
 }
 
-function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError }: TranscriptData) {
+function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError, compacting }: TranscriptData) {
   const showTs = computeShowTimestamps(units);
   // No dep array: fires after every commit. A plain rAF scroll races React's
   // async commit on big session swaps (the transcript still held the old DOM
@@ -186,6 +188,14 @@ function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, 
            output — like a model reply but in red text (pi TUI parity) */
         <div style={{ color: "var(--text-error)", fontSize: 13, lineHeight: 1.65, marginBottom: 16, whiteSpace: "pre-wrap" }}>
           Error: {runError}
+        </div>
+      )}
+      {compacting && (
+        /* pi-obsidian divergence (0.5.5, user spec): a live compaction shows a
+           plain-text "Compacting..." line at the session tail — model-reply
+           styling, no bubble — replaced in place by the finished caret block. */
+        <div style={{ color: "var(--text-normal)", fontSize: 15, lineHeight: 1.65, marginBottom: 16 }}>
+          Compacting...
         </div>
       )}
     </div>

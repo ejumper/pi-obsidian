@@ -2,6 +2,9 @@
 
 import { memo, useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { MarkdownBody } from "./MarkdownBody";
+/* pi-obsidian divergence (0.5.5): compaction messages render inside a
+   ProcessDetails-style caret block — see ../CompactionDetails. */
+import { CompactionDetails } from "../CompactionDetails";
 import { apiUrl } from "./api-base";
 import { copyText } from "./lib/clipboard";
 import { parseCompactionSummary } from "./lib/compaction-summary";
@@ -129,7 +132,15 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   }
   if (message.role === "custom") {
     if ((message as CustomMessage).customType === "compaction") {
-      return <CompactionMessageView message={message as CustomMessage} />;
+      /* pi-obsidian divergence (0.5.5, user spec): compaction renders as a
+         ProcessDetails-style caret block — "Session Compacted · N tokens
+         compacted · Session size M" — expanding to the actual pi-web
+         compaction message. */
+      return (
+        <CompactionDetails message={message as CustomMessage}>
+          <CompactionMessageView message={message as CustomMessage} />
+        </CompactionDetails>
+      );
     }
     return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
   }
