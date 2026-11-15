@@ -132,11 +132,33 @@ export type VoiceGlowPhase =
   | "playing"
   | "playing_paused";
 
-export function voicePhase(ui: VoiceUi): VoiceGlowPhase {
+/** TTS pipeline state for the glow (0.5.2 precedence: green breath > green
+ *  chase > white breath — see voicePhase). */
+export type TtsGlow = "off" | "synthesizing" | "playing" | "paused";
+
+/**
+ * Phase for the glow state machine. Precedence (0.5.2, user spec): red
+ * recording > green breath (playing) > green steady (held) > green chase
+ * (synthesizing — covers mid-utterance gaps) > white chase (connecting) >
+ * white breath (working) > off. Mid-run speech turns the border green and it
+ * RETURNS TO WHITE when the speech ends — the run-continues signal survives;
+ * the final response ends in idle. `tts` is the pipeline state; when omitted,
+ * the legacy ui.playback flags stand in (harness/back-compat).
+ */
+export function voicePhase(
+  ui: VoiceUi,
+  tts?: TtsGlow,
+  connecting = false,
+): VoiceGlowPhase {
+  const t: TtsGlow =
+    tts ??
+    (ui.playback === "on" ? "playing" : ui.playback === "paused" ? "paused" : "off");
   if (ui.recording === "on") return "recording";
   if (ui.recording === "paused") return "recording_paused";
+  if (t === "playing") return "playing";
+  if (t === "paused") return "playing_paused";
+  if (t === "synthesizing") return "synthesizing";
+  if (connecting) return "connecting";
   if (ui.runActive) return "working";
-  if (ui.playback === "on") return "playing";
-  if (ui.playback === "paused") return "playing_paused";
   return "idle";
 }

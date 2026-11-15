@@ -1,15 +1,23 @@
 /**
  * Voice-mode TTS player — speaks an OpenAI-compatible `/v1/audio/speech`
  * endpoint (verified live: piper.halfab.net, JSON `{input, response_format:
- * "wav"}` → `audio/wav` bytes) with lazy per-chunk synthesis: chunk 0 POSTs
- * as soon as its unit is enqueued, chunk N+1 prefetches while N plays.
+ * "wav"}` → `audio/wav` bytes) as a STREAMING utterance pipeline: the store's
+ * growing message text is fed through ./speech-chunker's ChunkCursor, whose
+ * committed cuts land in ONE global FIFO shared across utterances. Up to
+ * MAX_IN_FLIGHT requests synthesize ahead of playback (chunk 0 is simply
+ * first in line, so it POSTs first — fast start), and a single
+ * HTMLAudioElement plays the FIFO in order for the whole player lifetime —
+ * which is what lets AudioAmp tap it exactly once, inside unlock()'s gesture.
  *
  * Browser APIs only (fetch, HTMLAudioElement, URL.createObjectURL) — no
- * Obsidian imports. Chunking/sanitizing comes from ./tts-text (ported from
- * pi-web); the RIFF guard below is pi-web's bugfix-proven `buildWavHeader`
- * ported from pi-web lib/speak.ts (Buffer → Uint8Array for the webview).
+ * Obsidian imports. Sanitizing comes from ./tts-text (applied per chunk at
+ * request time); the RIFF guard below is pi-web's bugfix-proven
+ * `buildWavHeader` ported from pi-web lib/speak.ts (Buffer → Uint8Array for
+ * the webview).
  */
-import { chunkText, sanitizeForSpeech } from "./tts-text";
+import { AudioAmp } from "./audio-amp";
+import { ChunkCursor, type SpeechChunk } from "./speech-chunker";
+import { sanitizeForSpeech } from "./tts-text";
 
 export type TtsState = "idle" | "synthesizing" | "playing" | "paused";
 
@@ -18,17 +26,49 @@ export interface TtsPlayerOptions {
   url: string;
   onStateChange?: (state: TtsState) => void;
   onError?: (message: string) => void;
+  /** Smoothed amplitude 0..1 while audio plays; null when it stops (glow hook). */
+  onAmp?: (amp: number | null) => void;
 }
 
-/** One queued message unit: all its chunks play in order; replayCurrent() replays it whole. */
-type Unit = string[];
-
-/** In-flight/completed prefetch of the next chunk of the current unit. */
-interface PrefetchSlot {
+/** One FIFO entry: a single speakable chunk plus its synthesis/playback bookkeeping. */
+interface QueuedChunk {
+  /** Owning utterance — completion keys off this, replay cache lives per id. */
+  uttId: number;
+  /** 0-based position within its utterance (error messages only). */
   index: number;
-  /** Resolves to an object URL, or null when synthesis failed or went stale. */
-  promise: Promise<string | null>;
+  /** Raw utterance text — sanitized per chunk at request time, not here. */
+  text: string;
+  /** Object URL once synthesized; null while pending or in flight. */
+  url: string | null;
+  inFlight: boolean;
+  /** Replay chunks borrow the cache's URLs — they never own or release them. */
+  replay: boolean;
 }
+
+/** Per-utterance bookkeeping: streaming cursor while open, played URLs after. */
+interface Utterance {
+  id: number;
+  /** beginUtterance called, endUtterance not yet — feeds the busy predicate. */
+  open: boolean;
+  /** At least one chunk dispatched — a begun-but-silent utterance isn't busy. */
+  dispatched: boolean;
+  /** URLs of chunks that finished playing — becomes the replay cache on completion. */
+  playedUrls: string[];
+  /** Streaming cursor + latest full text (present only while open). */
+  cursor: ChunkCursor | null;
+  lastText: string;
+  /** Next chunk index within the utterance (diagnostics in error messages). */
+  nextIndex: number;
+}
+
+/** Replay cache: the last COMPLETED utterance's URLs, replayed without re-synthesis. */
+interface ReplayCache {
+  id: number;
+  urls: string[];
+}
+
+/** Max simultaneous synthesis fetches — how far synthesis runs ahead of playback. */
+const MAX_IN_FLIGHT = 2;
 
 /**
  * 204-byte 8 kHz mono WAV of pure silence (44-byte header + 320 zero samples)
@@ -38,84 +78,205 @@ const SILENT_WAV_DATA_URI =
   "data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 export class TtsPlayer {
-  /** Units waiting behind the current one. */
-  private units: Unit[] = [];
-  /** The unit currently playing (chunks consumed left to right), if any. */
-  private current: Unit | null = null;
-  /** Most recently enqueued unit — what replayCurrent() replays. */
-  private lastUnit: Unit | null = null;
+  /** Global chunk FIFO across utterances — synthesis and playback both run in order. */
+  private queue: QueuedChunk[] = [];
+  /** Synthesis fetches currently running (capped at MAX_IN_FLIGHT). */
+  private inflight = 0;
+  /** Utterance records still live: open, awaiting their last chunks, or partial. */
+  private utterances = new Map<number, Utterance>();
+  /** The utterance noteText() feeds right now, if any. */
+  private openId: number | null = null;
+  private uttSeq = 0;
+  /** Last completed utterance's URLs — what replayCurrent() replays. */
+  private replayCache: ReplayCache | null = null;
+  /** URLs awaiting revocation, deferred while a replay may still load them. */
+  private deferredRevoke: string[] = [];
 
   private state: TtsState = "idle";
+  /** Pause HOLD: playback must not (re)start until togglePause() clears it. */
+  private pausedHold = false;
   private audio: HTMLAudioElement | null = null;
   /** Object URL currently installed on `audio` (null once released). */
-  private audioUrl: string | null = null;
-  private prefetch: PrefetchSlot | null = null;
-  /** Bumped by every halt so late fetch/event callbacks can't touch new state. */
+  private currentUrl: string | null = null;
+  /** Bumped by every flush so late fetch/event callbacks can't touch new state. */
   private epoch = 0;
+
+  /**
+   * Glow amplitude tap — created only when a hook exists, tapped exactly once
+   * in unlock()'s gesture. amp.stop() is NEVER called here: it would kill the
+   * tap's frame loop for good (the tap cannot be re-created), so silence is
+   * expressed via onAmp(null) on state transitions instead.
+   */
+  private amp: AudioAmp | null;
+  /** True once tapElement has run — only then may onAmp fire at all. */
+  private ampTapped = false;
 
   private unlocked = false;
   private unlockInFlight = false;
   private silentAudio: HTMLAudioElement | null = null;
 
-  constructor(private readonly opts: TtsPlayerOptions) {}
+  constructor(private readonly opts: TtsPlayerOptions) {
+    this.amp = opts.onAmp ? new AudioAmp({ onAmp: opts.onAmp, gain: 4 }) : null;
+  }
+
+  // ── streaming feed ──────────────────────────────────────────────────────
 
   /**
-   * Queue `text` as ONE message unit: sanitized + chunked, all chunks play in
-   * order behind whatever is already queued. Synthesis itself stays lazy —
-   * nothing is POSTed until the chunk's playback slot approaches.
+   * Start a new utterance (fresh cursor + id). Safe mid-playback: the FIFO is
+   * global, so the previous message's audio keeps playing behind the new one's
+   * chunks as the two messages hand over.
    */
-  enqueue(text: string): void {
-    const chunks = chunkText(sanitizeForSpeech(text));
-    if (chunks.length === 0) return;
-    this.lastUnit = chunks;
-    this.units.push(chunks);
-    this.pump();
+  beginUtterance(): void {
+    // Defensive: a left-open utterance (a missed endUtterance) would wedge the
+    // busy predicate forever — close it first, tail included.
+    if (this.openId !== null) this.endUtterance();
+    const id = ++this.uttSeq;
+    this.utterances.set(id, {
+      id,
+      open: true,
+      dispatched: false,
+      playedUrls: [],
+      cursor: new ChunkCursor(),
+      lastText: "",
+      nextIndex: 0,
+    });
+    this.openId = id;
+    // Deliberately no state refresh: zero dispatched chunks isn't busy — a
+    // merely-begun utterance must still read as idle until its first cut lands.
   }
 
-  /** Pause/resume the current playback. Pausing during synthesis defers the chunk until resume. */
+  /**
+   * Feed the utterance's FULL text so far (it grows on every store tick).
+   * Unchanged text returns before touching the cursor; changed text yields
+   * only newly committed cuts (the cursor tracks its own dispatch offset), so
+   * this stays cheap and idempotent either way.
+   */
+  noteText(text: string): void {
+    if (this.openId === null) return; // stray tick — nothing is open
+    const utt = this.utterances.get(this.openId);
+    const cursor = utt ? utt.cursor : null;
+    if (!utt || !cursor) return; // closed between ticks (defensive)
+    if (text === utt.lastText) return;
+    utt.lastText = text;
+    const chunks = cursor.feed(text);
+    if (chunks.length > 0) this.appendChunks(utt, chunks);
+  }
+
+  /**
+   * Close the utterance: the cursor's tail needs the latest full text, which
+   * noteText() remembered per utterance — flush it into the FIFO. The
+   * utterance completes once its last chunk has played.
+   */
+  endUtterance(): void {
+    if (this.openId === null) return;
+    const id = this.openId;
+    this.openId = null;
+    const utt = this.utterances.get(id);
+    if (!utt) return;
+    utt.open = false;
+    const cursor = utt.cursor;
+    utt.cursor = null;
+    if (cursor) {
+      const tail = cursor.flush(utt.lastText);
+      if (tail.length > 0) this.appendChunks(utt, tail);
+    }
+    // Zero-tail utterance whose chunks already played completes right here.
+    this.checkComplete(id);
+    this.refreshState(); // an open-but-silent utterance stops counting as busy
+  }
+
+  // ── controls ────────────────────────────────────────────────────────────
+
+  /**
+   * Pause/resume. Pausing only sets the HOLD — synthesis keeps filling the
+   * FIFO, but no playback starts again until the toggle clears it.
+   */
   togglePause(): void {
     if (this.state === "playing") {
+      // Hold BEFORE pausing so no pump or late fetch can restart audio.
+      this.pausedHold = true;
       this.audio?.pause();
       this.setState("paused");
-    } else if (this.state === "paused") {
-      this.setState("playing");
-      const url = this.audioUrl;
-      const audio = this.audio;
-      if (audio && url) {
-        void audio.play().catch((err: unknown) => {
-          if (this.audioUrl !== url) return; // chunk moved on or was flushed meanwhile
-          this.reportError(`Playback failed: ${errText(err)}`);
-          this.setState("paused");
-        });
-      }
-      // else: still synthesizing — playChunk() starts it when the chunk arrives.
-    } else if (this.state === "synthesizing") {
+    } else if (this.pausedHold) {
+      // Resume: release the hold; the pump restarts the loaded chunk or picks
+      // up the head (→ synthesizing when its audio hasn't arrived yet).
+      this.pausedHold = false;
+      this.pumpPlayback();
+      this.refreshState();
+    } else if (this.busy()) {
+      // Busy but nothing playing (synthesizing): hold so playback won't
+      // auto-start; the next toggle clears the hold and lets it run.
+      this.pausedHold = true;
       this.setState("paused");
     }
+    // idle with nothing queued: no-op.
   }
 
-  /** Replay the last enqueued message unit from its first chunk (pending units queue behind it). */
+  /**
+   * Re-play the last COMPLETED utterance from its cached URLs — no
+   * re-synthesis. Chunks join the FIFO tail (FIFO order: after whatever is
+   * already queued) and no-op when no cache exists.
+   */
   replayCurrent(): void {
-    const unit = this.lastUnit;
-    if (!unit || unit.length === 0) return;
-    this.haltPlayback();
-    this.units = this.units.filter((u) => u !== unit);
-    this.units.unshift(unit);
-    this.setState("idle");
-    this.pump();
+    const cache = this.replayCache;
+    if (!cache || cache.urls.length === 0) return;
+    // Queued chunks under the cache's id ARE that replay pass (a completed
+    // utterance never has ordinary chunks pending) — don't stack a double-tap.
+    if (this.queue.some((c) => c.uttId === cache.id)) return;
+    for (let i = 0; i < cache.urls.length; i++) {
+      this.queue.push({
+        uttId: cache.id,
+        index: i,
+        text: "", // never synthesized again — the URL already exists
+        url: cache.urls[i],
+        inFlight: false,
+        replay: true,
+      });
+    }
+    this.pumpPlayback();
+    this.refreshState();
   }
 
-  /** Stop playback, clear all pending chunks/units, revoke URLs, back to idle. */
+  /**
+   * Stop playback, clear the FIFO and the open utterance, back to idle. The
+   * replay cache of the last COMPLETED utterance survives — only partial
+   * utterances release their audio here.
+   */
   stopAndFlush(): void {
-    this.units = [];
-    this.haltPlayback();
+    this.epoch++; // every in-flight fetch and event handler becomes a no-op
+    this.openId = null;
+    for (const utt of this.utterances.values()) {
+      this.deferredRevoke.push(...utt.playedUrls);
+    }
+    this.utterances.clear();
+    for (const chunk of this.queue) {
+      // Replay URLs belong to the cache, which we keep; everything else is
+      // revoked right here (played-or-not, its utterance will never complete).
+      if (!chunk.replay && chunk.url !== null) URL.revokeObjectURL(chunk.url);
+    }
+    this.queue = [];
+    if (this.audio) {
+      this.audio.onended = null;
+      this.audio.onerror = null;
+      this.audio.pause();
+      this.audio.removeAttribute("src");
+    }
+    this.currentUrl = null;
+    this.pausedHold = false;
+    this.purgeDeferred();
+    const wasIdle = this.state === "idle";
     this.setState("idle");
+    // setState dedupes — drop the glow explicitly when we were already idle.
+    if (wasIdle && this.amp && this.ampTapped) this.opts.onAmp?.(null);
   }
 
   /**
    * Autoplay unlock for iOS/Brave: play a one-shot silent WAV so later
-   * programmatic playback is allowed. Idempotent — a failed attempt can be
-   * retried by calling again (ideally from another user gesture).
+   * programmatic playback is allowed, then tap the shared audio element for
+   * the glow — the tap MUST run inside this same user gesture (iOS), so it
+   * happens right here, once, on the one element this player ever uses.
+   * Idempotent — a failed attempt can be retried by calling again (ideally
+   * from another user gesture).
    */
   unlock(): void {
     if (this.unlocked || this.unlockInFlight) return;
@@ -141,147 +302,249 @@ export class TtsPlayer {
       this.unlockInFlight = false;
       this.silentAudio = null;
     }
+    if (this.amp && !this.ampTapped) {
+      this.ampTapped = true;
+      this.amp.tapElement(this.ensureAudio());
+    }
   }
 
   // ── pipeline ────────────────────────────────────────────────────────────
 
-  /** Dequeue the next unit when nothing is playing. */
-  private pump(): void {
-    if (this.current) return;
-    const next = this.units.shift();
-    if (!next) {
-      this.setState("idle");
-      return;
+  /** Append freshly committed chunks to the global FIFO and wake both pumps. */
+  private appendChunks(utt: Utterance, chunks: SpeechChunk[]): void {
+    for (const chunk of chunks) {
+      utt.dispatched = true;
+      this.queue.push({
+        uttId: utt.id,
+        index: utt.nextIndex++,
+        text: chunk.text,
+        url: null,
+        inFlight: false,
+        replay: false,
+      });
     }
-    this.current = next;
-    void this.playChunk(0);
+    // Chunk 0 lands first in the FIFO → dispatched first → fast start.
+    this.pumpSynthesis();
+    this.pumpPlayback();
+    this.refreshState(); // first dispatched chunk of an open utterance → synthesizing
   }
 
-  private async playChunk(index: number): Promise<void> {
-    const unit = this.current;
-    if (!unit) return;
-    if (index >= unit.length) {
-      this.current = null;
-      this.pump();
+  // ── synthesis ───────────────────────────────────────────────────────────
+
+  /**
+   * Dispatch fetches for queued chunks in FIFO order, up to the in-flight
+   * cap — the implicit prefetch that keeps playback fed (chunk 1 synthesizes
+   * while chunk 0 speaks, chunk 2 behind it).
+   */
+  private pumpSynthesis(): void {
+    const pending: QueuedChunk[] = [];
+    for (const chunk of this.queue) {
+      if (chunk.inFlight || chunk.url !== null) continue;
+      pending.push(chunk);
+    }
+    // Collected first: dispatching may drop an unspeakable chunk synchronously,
+    // and that removal must not mutate the list being walked.
+    for (const chunk of pending) {
+      if (this.inflight >= MAX_IN_FLIGHT) return;
+      this.dispatchSynthesis(chunk);
+    }
+  }
+
+  private dispatchSynthesis(chunk: QueuedChunk): void {
+    // Sanitize per chunk AT REQUEST TIME — the cursor chunks the raw text.
+    const input = sanitizeForSpeech(chunk.text);
+    if (!input) {
+      // Nothing speakable survived (e.g. bare markdown): drop it silently — an
+      // empty POST would only surface a server error for a chunk of nothing.
+      this.removeChunk(chunk, false);
       return;
     }
+    chunk.inFlight = true;
+    this.inflight++;
     const epoch = this.epoch;
+    void synthesizeWav(this.opts.url, input).then(
+      (blob) => {
+        // Stale (flushed meanwhile): drop the blob before a URL exists — no leak.
+        if (epoch === this.epoch) chunk.url = URL.createObjectURL(blob);
+        this.settle(chunk, epoch);
+      },
+      (err: unknown) => {
+        if (epoch === this.epoch) {
+          this.reportError(errText(err));
+          // Drop just this chunk — a failed synthesis must never wedge the FIFO.
+          this.removeChunk(chunk, false);
+        }
+        this.settle(chunk, epoch);
+      },
+    );
+  }
 
-    const url = await this.obtainChunkUrl(unit, index, epoch);
-    if (epoch !== this.epoch) {
-      if (url !== null) URL.revokeObjectURL(url);
-      return;
-    }
-    if (url === null) {
-      // Failure already reported (or chunk superseded) — skip and continue.
-      void this.playChunk(index + 1);
-      return;
-    }
+  /** Bookkeeping after a fetch settles: free the slot, re-pump, re-evaluate. */
+  private settle(chunk: QueuedChunk, epoch: number): void {
+    this.inflight--;
+    if (epoch !== this.epoch) return; // flushed meanwhile — leave the new state alone
+    this.pumpSynthesis(); // the freed slot may dispatch the next chunk
+    this.pumpPlayback(); // the head may have just received its audio
+    this.refreshState();
+  }
 
-    // Install on the shared audio element, releasing the outgoing URL if any.
+  // ── playback ────────────────────────────────────────────────────────────
+
+  /**
+   * Install and start the FIFO head when it has audio. ONE element serves the
+   * whole player lifetime (the AudioAmp taps it once), so this never
+   * re-creates it — it only loads the next chunk onto the same element.
+   */
+  private pumpPlayback(): void {
+    if (this.pausedHold) return; // synthesis continues; playback waits for a toggle
     const audio = this.ensureAudio();
-    if (this.audioUrl !== null) URL.revokeObjectURL(this.audioUrl);
-    this.audioUrl = url;
-    audio.src = url;
+    if (this.currentUrl !== null) {
+      if (!audio.paused) return; // already playing
+      this.startPlayback(audio, this.currentUrl); // resume a loaded chunk
+      return;
+    }
+    const head = this.queue[0];
+    if (!head || head.url === null) return; // waiting on synthesis — synthesizing
+    this.install(head, audio);
+  }
 
-    const isCurrent = (): boolean => epoch === this.epoch && this.audioUrl === url;
+  /** Wire the head chunk to the element (event handlers keyed on epoch + URL). */
+  private install(chunk: QueuedChunk, audio: HTMLAudioElement): void {
+    const url = chunk.url;
+    if (url === null) return;
+    this.currentUrl = url;
+    audio.src = url;
+    const epoch = this.epoch;
+    const isCurrent = (): boolean => epoch === this.epoch && this.currentUrl === url;
     audio.onended = () => {
       if (!isCurrent()) return;
-      this.releaseUrl(url);
-      void this.playChunk(index + 1);
+      this.removeChunk(chunk, true); // → utterance played-URLs → replay cache
+      this.pumpPlayback(); // advance to the next chunk
+      this.refreshState();
     };
     audio.onerror = () => {
       if (!isCurrent()) return;
-      this.releaseUrl(url); // neutralize first — a repeat event can't double-advance
-      this.reportError(`Audio playback failed on chunk ${index + 1}`);
-      void this.playChunk(index + 1);
+      this.removeChunk(chunk, false); // neutralize first — a repeat event can't double-advance
+      this.reportError(`Audio playback failed on chunk ${chunk.index + 1}`);
+      this.pumpPlayback();
+      this.refreshState();
     };
+    this.startPlayback(audio, url);
+  }
 
-    // Prefetch chunk N+1 while N plays (within-unit only; one slot deep).
-    this.prefetchChunk(unit, index + 1, epoch);
-
-    if (this.state === "paused") return; // install only — togglePause() starts it later
-    this.setState("playing");
-    try {
-      await audio.play();
-    } catch (err) {
-      if (!isCurrent()) return;
-      // Autoplay blocked (or interrupted): surface it and park in "paused" so
-      // the next togglePause()/unlock() can start playback without losing state.
+  /** play() with the preserved park-on-failure handling (see below). */
+  private startPlayback(audio: HTMLAudioElement, url: string): void {
+    const epoch = this.epoch;
+    void audio.play().catch((err: unknown) => {
+      if (epoch !== this.epoch || this.currentUrl !== url) return; // chunk moved on or was flushed
+      if (this.pausedHold) return; // our own pause() interrupted play() — not a failure
+      // Autoplay blocked: surface it and take the hold so the next
+      // togglePause()/unlock() can start playback without losing the chunk.
       this.reportError(`Playback failed: ${errText(err)}`);
-      this.setState("paused");
+      this.pausedHold = true;
+      this.refreshState();
+    });
+    this.refreshState(); // play() flipped paused synchronously → "playing"
+  }
+
+  // ── completion & URL ownership ──────────────────────────────────────────
+
+  /**
+   * Remove a chunk from the FIFO and settle its URL ownership: a played chunk
+   * hands its URL to the utterance (→ replay cache), an unplayed one is
+   * revoked, a replay chunk stays with the cache. Also re-checks completion.
+   */
+  private removeChunk(chunk: QueuedChunk, played: boolean): void {
+    const i = this.queue.indexOf(chunk);
+    if (i !== -1) this.queue.splice(i, 1);
+    if (chunk.url !== null && this.currentUrl === chunk.url) this.currentUrl = null;
+    if (chunk.replay) {
+      // Replay chunks borrow the cache's URLs — releasing them is its job.
+    } else if (played && chunk.url !== null) {
+      const utt = this.utterances.get(chunk.uttId);
+      if (utt) utt.playedUrls.push(chunk.url);
+      else URL.revokeObjectURL(chunk.url); // defensive: orphaned URL, drop it
+    } else if (chunk.url !== null) {
+      URL.revokeObjectURL(chunk.url); // synthesized but never finished — no leak
     }
+    this.purgeDeferred();
+    this.checkComplete(chunk.uttId);
   }
 
   /**
-   * Resolve this chunk's object URL: consume the prefetch made while the
-   * previous chunk played, or synthesize now (the slot has approached).
-   * Returns null on failure (already reported via onError) or when the epoch
-   * moved on (stale — nothing to report).
+   * Finalize an utterance once it ended AND fully played — it becomes the
+   * replay cache, replacing (and revoking) the older one. A replay pass never
+   * reaches here: it has no record, so its borrowed URLs stay with the cache.
    */
-  private async obtainChunkUrl(unit: Unit, index: number, epoch: number): Promise<string | null> {
-    if (this.prefetch && this.prefetch.index === index) {
-      const slot = this.prefetch;
-      this.prefetch = null;
-      const url = await slot.promise;
-      if (epoch !== this.epoch) {
-        if (url !== null) URL.revokeObjectURL(url);
-        return null;
-      }
-      return url;
-    }
-    if (this.state !== "paused") this.setState("synthesizing");
-    let blob: Blob;
-    try {
-      blob = await synthesizeWav(this.opts.url, unit[index]);
-    } catch (err) {
-      if (epoch === this.epoch) this.reportError(errText(err));
-      return null;
-    }
-    if (epoch !== this.epoch) return null; // blob dropped before a URL existed — no leak
-    return URL.createObjectURL(blob);
+  private checkComplete(uttId: number): void {
+    const utt = this.utterances.get(uttId);
+    if (!utt || utt.open) return; // still streaming — more chunks may come
+    if (this.queue.some((c) => c.uttId === uttId)) return; // unplayed chunks remain
+    this.utterances.delete(uttId);
+    // An utterance that never dispatched a chunk (empty message, aborted
+    // begin) produced no playback — it must not REPLACE (and wipe) the cache.
+    if (!utt.dispatched) return;
+    const old = this.replayCache;
+    this.replayCache = { id: uttId, urls: utt.playedUrls };
+    // Ids are monotonic, so old.id !== uttId holds; the guard keeps a replay
+    // re-completion (impossible by construction) from revoking itself.
+    if (old && old.id !== uttId) this.deferredRevoke.push(...old.urls);
+    this.purgeDeferred();
   }
 
-  private prefetchChunk(unit: Unit, index: number, epoch: number): void {
-    if (index >= unit.length) return;
-    if (this.prefetch) return; // one slot deep — laziness stops at N+1
-    if (this.current !== unit) return;
-    const promise = synthesizeWav(this.opts.url, unit[index]).then(
-      (blob) => {
-        // Stale (halted/replayed meanwhile): drop the blob without a URL.
-        if (epoch !== this.epoch) return null;
-        return URL.createObjectURL(blob);
-      },
-      (err: unknown) => {
-        if (epoch === this.epoch) this.reportError(errText(err));
-        return null;
-      },
-    );
-    this.prefetch = { index, promise };
+  /** Revoke deferred URLs once nothing queued still references them — a replay
+   *  pass can outlive the cache it borrows from. */
+  private purgeDeferred(): void {
+    if (this.deferredRevoke.length === 0) return;
+    const live = new Set(this.queue.map((c) => c.url));
+    const keep: string[] = [];
+    for (const url of this.deferredRevoke) {
+      if (live.has(url)) keep.push(url);
+      else URL.revokeObjectURL(url);
+    }
+    this.deferredRevoke = keep;
   }
 
-  /** Interrupt whatever is playing: bump the epoch, stop audio, revoke every URL we hold. */
-  private haltPlayback(): void {
-    this.epoch++;
-    if (this.audio) {
-      this.audio.onended = null;
-      this.audio.onerror = null;
-      this.audio.pause();
-      this.audio.removeAttribute("src");
-    }
-    if (this.audioUrl !== null) {
-      URL.revokeObjectURL(this.audioUrl);
-      this.audioUrl = null;
-    }
-    if (this.prefetch) {
-      const slot = this.prefetch;
-      this.prefetch = null;
-      // If the URL already resolved it exists but was never consumed — revoke it.
-      void slot.promise.then((u) => {
-        if (u !== null) URL.revokeObjectURL(u);
-      });
-    }
-    this.current = null;
+  // ── state ───────────────────────────────────────────────────────────────
+
+  /**
+   * The exact predicate behind the glow: element playing > pause hold > busy
+   * (synthesizing) > idle. As soon as the first chunk request dispatches the
+   * state is synthesizing until audio starts; mid-utterance gaps (all known
+   * audio played, waiting for more text) read as synthesizing too.
+   */
+  private refreshState(): void {
+    const audio = this.audio;
+    const playing = this.currentUrl !== null && audio !== null && !audio.paused;
+    const next: TtsState = playing
+      ? "playing"
+      : this.pausedHold
+        ? "paused"
+        : this.busy()
+          ? "synthesizing"
+          : "idle";
+    this.setState(next);
+  }
+
+  /** FIFO busy: any chunk not yet fully played, or an open utterance that has dispatched one. */
+  private busy(): boolean {
+    if (this.queue.length > 0) return true;
+    if (this.openId === null) return false;
+    const utt = this.utterances.get(this.openId);
+    return utt !== undefined && utt.dispatched;
+  }
+
+  private setState(state: TtsState): void {
+    if (this.state === state) return;
+    this.state = state;
+    // The glow pins --breath to the live amp only while audio plays; any other
+    // state hands it back to the CSS breath. Never fires before the unlock tap.
+    if (state !== "playing" && this.amp && this.ampTapped) this.opts.onAmp?.(null);
+    this.opts.onStateChange?.(state);
+  }
+
+  private reportError(message: string): void {
+    this.opts.onError?.(message);
   }
 
   private ensureAudio(): HTMLAudioElement {
@@ -290,22 +553,6 @@ export class TtsPlayer {
       this.audio.preload = "auto";
     }
     return this.audio;
-  }
-
-  /** Release a chunk's object URL once it finished (or failed) — no leaks either way. */
-  private releaseUrl(url: string): void {
-    if (this.audioUrl === url) this.audioUrl = null;
-    URL.revokeObjectURL(url);
-  }
-
-  private setState(state: TtsState): void {
-    if (this.state === state) return;
-    this.state = state;
-    this.opts.onStateChange?.(state);
-  }
-
-  private reportError(message: string): void {
-    this.opts.onError?.(message);
   }
 }
 

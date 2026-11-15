@@ -8,6 +8,7 @@
  * Obsidian imports, no npm deps. The fetch error style mirrors tts.ts; each
  * file stays self-contained.
  */
+import { AudioAmp } from "./audio-amp";
 
 /** Mime negotiation order: first MediaRecorder.isTypeSupported hit wins; default if none. */
 const RECORDER_MIMES = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
@@ -25,6 +26,8 @@ export interface VoiceRecorderOptions {
   /** 60 s of continuous silence or the 5-minute hard cap — caller decides send vs. discard. */
   onAutoStop?: () => void;
   onError?: (message: string) => void;
+  /** Smoothed mic amplitude for the reactive glow (null = not recording). */
+  onAmp?: (amp: number | null) => void;
 }
 
 export class VoiceRecorder {
@@ -45,7 +48,13 @@ export class VoiceRecorder {
   private pendingStop: ((blob: Blob | null) => void) | null = null;
   private stopWatchdog: number | null = null;
 
-  constructor(private readonly opts: VoiceRecorderOptions) {}
+  /** Mic amplitude envelope for the reactive glow (fed from the same analyser
+   *  the silence detector uses — no second tap). Gain 5: speech RMS lands 0..1. */
+  private amp: AudioAmp | null;
+
+  constructor(private readonly opts: VoiceRecorderOptions) {
+    this.amp = opts.onAmp ? new AudioAmp({ onAmp: opts.onAmp, gain: 5 }) : null;
+  }
 
   /**
    * Open the mic and start recording. MUST be called from within a user
@@ -136,6 +145,8 @@ export class VoiceRecorder {
       return;
     }
     this.silenceStart = null;
+    // Recording held → freeze the amp (the glow falls back to the CSS steady).
+    this.amp?.stop();
   }
 
   resume(): void {
@@ -274,6 +285,7 @@ export class VoiceRecorder {
       return;
     }
     analyser.getFloatTimeDomainData(buf);
+    this.amp?.feedSamples(buf);
     let sum = 0;
     for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     const rms = Math.sqrt(sum / buf.length);
@@ -335,6 +347,7 @@ export class VoiceRecorder {
 
   /** Release mic/stream/audio resources; leaves the object ready for start() again. */
   private cleanup(): void {
+    this.amp?.stop();
     this.clearWatch();
     if (this.source) {
       try {

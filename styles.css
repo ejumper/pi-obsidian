@@ -1359,6 +1359,14 @@ body.is-mobile .pi-voice-glow {
 
 /* ── Breath recipe: the whole string breathes together ──────────────────── */
 
+/* Audio-reactive (0.5.2): while the amp meter flows (TTS audible or the mic
+   hot) it pins `--breath` directly and the keyframe breath freezes — the glow
+   breathes with the audio. Handled by JS: .pi-voice-glow-live + inline
+   --breath on the edge; removing both falls back to the CSS breath. */
+.pi-voice-glow.pi-voice-glow-live .pi-voice-glow-edge {
+  animation: none;
+}
+
 .pi-voice-glow-breath .pi-voice-glow-layer--wave {
   display: none;
 }

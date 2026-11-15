@@ -106,6 +106,7 @@ export class VoiceOverlay {
   private readonly activityEl: HTMLElement;
   private readonly stopEl: HTMLElement;
   private readonly glowEl: HTMLElement;
+  private readonly edgeEl: HTMLElement;
   private readonly renderer: TranscriptRenderer;
   /** Container's viewport rect is re-read by syncPosition() — the pane is a
    *  body-attached fixed layer (the composer's pattern), not a child of the
@@ -168,6 +169,7 @@ export class VoiceOverlay {
     document.body.appendChild(glow);
     this.el = pane;
     this.glowEl = glow;
+    this.edgeEl = edge;
     this.gesturesEl = gestures;
     this.msgEl = msg;
     this.countdownEl = countdown;
@@ -215,6 +217,23 @@ export class VoiceOverlay {
     if (this.destroyed) return;
     this.activityEl.textContent = text;
     this.activityEl.classList.toggle("pi-voice-activity-on", text !== null);
+  }
+
+  /**
+   * Audio-reactive glow (0.5.2): while amplitude flows (TTS audible or the mic
+   * hot) pin `--breath` to it — the border breathes WITH the audio. null hands
+   * control back to the CSS breath (the inline value must go with it or it
+   * would out-rank the paused-steady rules).
+   */
+  setAmp(amp: number | null): void {
+    if (this.destroyed) return;
+    if (amp === null) {
+      this.glowEl.classList.remove("pi-voice-glow-live");
+      this.edgeEl.style.removeProperty("--breath");
+    } else {
+      this.glowEl.classList.add("pi-voice-glow-live");
+      this.edgeEl.style.setProperty("--breath", amp.toFixed(3));
+    }
   }
 
   setPhase(phase: VoiceGlowPhase): void {

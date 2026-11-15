@@ -18,6 +18,7 @@ import {
   type VoiceEvent,
   type VoiceGlowPhase,
   type VoiceUi,
+  type TtsGlow,
 } from "./gesture-state";
 import type { VoicePrompts } from "./prompts";
 import { currentActivity } from "./activity";
@@ -35,6 +36,8 @@ export interface VoiceControllerOptions {
   /** Overlay repaint hook: glow phase + countdown seconds (null = hidden) +
    *  activity text (null = nothing specific — the glow carries the rest). */
   onUi?: (phase: VoiceGlowPhase, countdown: number | null, activity: string | null) => void;
+  /** Smoothed audio amplitude for the reactive glow (null = not analysing). */
+  onAmp?: (amp: number | null) => void;
   onNotice?: (message: string) => void;
   /** Send a prompt through the composer's session path — creates the session
    *  when none exists (the store's sendPrompt silently no-ops on a session-less
@@ -61,10 +64,14 @@ export class VoiceController {
   private readonly tts: TtsPlayer;
   private readonly recorder: VoiceRecorder;
   private ui: VoiceUi = initialVoiceUi;
-  /** Transient glow phases (pi-voice-chat parity): connecting = transcribe+send
-   *  until the run starts; synthesizing = TTS working before playback. */
+  /** connecting = transcribe+send until the run starts (white chase). */
   private connecting = false;
-  private synthesizing = false;
+  /** TTS pipeline state for the glow (green breath > green chase > white). */
+  private ttsGlow: TtsGlow = "off";
+  /** The utterance being streamed to TTS (its assistant message index). */
+  private utter: { idx: number } | null = null;
+  /** Utterance whose speech was stopped — never restart it. */
+  private suppressIdx = -1;
   private mode: "voice" | "normal" = "normal";
   private countdownTimer: number | null = null;
   private countdownLeft = 0;
@@ -79,17 +86,21 @@ export class VoiceController {
     this.tts = new TtsPlayer({
       url: opts.ttsUrl,
       onError: (m) => opts.onNotice?.(`Voice TTS — ${m}`),
+      onAmp: opts.onAmp,
       onStateChange: (st) => {
-        this.synthesizing = st === "synthesizing";
+        this.ttsGlow = st === "idle" ? "off" : st;
+        // Gesture layer: synthesizing counts as "speech pending" — tap holds
+        // the queue, double-tap interrupts it to record.
         if (st === "idle") this.ui = { ...this.ui, playback: "off" };
         else if (st === "paused") this.ui = { ...this.ui, playback: "paused" };
-        else if (st === "playing") this.ui = { ...this.ui, playback: "on" };
+        else this.ui = { ...this.ui, playback: "on" };
         this.paint();
       },
     });
     this.recorder = new VoiceRecorder({
       url: opts.sttUrl,
       onError: (m) => opts.onNotice?.(`Voice STT — ${m}`),
+      onAmp: opts.onAmp,
       // 60 s silence / 5 min cap auto-send (pi-voice-chat parity).
       onAutoStop: () => void this.sendRecording(),
     });
@@ -126,7 +137,10 @@ export class VoiceController {
       void this.recorder.prime();
     } else {
       this.connecting = false;
-      this.synthesizing = false;
+      if (this.utter) {
+        this.suppressIdx = this.utter.idx;
+        this.utter = null;
+      }
       this.tts.stopAndFlush();
       this.recorder.discard();
       this.clearCountdown();
@@ -166,6 +180,13 @@ export class VoiceController {
 
   /** Visible STOP button (beta3): abort the run — the hold gesture now records. */
   stopRun(): void {
+    // "stopped means stopped": drop pending speech and never restart the
+    // cancelled utterance — the aborted tail must not be spoken.
+    if (this.utter) {
+      this.suppressIdx = this.utter.idx;
+      this.utter = null;
+    }
+    this.tts.stopAndFlush();
     void this.opts.abortRun();
   }
 
@@ -223,7 +244,7 @@ export class VoiceController {
         this.clearCountdown();
         break;
       case "stop_run":
-        void this.opts.store.abort();
+        this.stopRun();
         break;
       default:
         break;
@@ -269,15 +290,47 @@ export class VoiceController {
     }
 
     if (this.mode === "voice") {
-      s.messages.forEach((m, i) => {
-        const id = s.entryIds[i];
-        if (!id || this.seenIds.has(id)) return;
-        this.seenIds.add(id);
-        if (m.role === "assistant") {
-          const text = messageText(m).trim();
-          if (text) this.tts.enqueue(text);
+      // ---- streaming TTS (0.5.2): one utterance per assistant message, fed
+      // incrementally so mid-run text speaks mid-run and the final response
+      // starts at its first break instead of after the whole message.
+      // Complete = a later entry exists (toolResult included) or the run
+      // ended — that flushes the tail.
+      if (this.utter) {
+        const complete =
+          s.messages.length - 1 > this.utter.idx || !s.agentRunning;
+        if (complete) {
+          const done = s.messages[this.utter.idx];
+          if (done && done.role === "assistant") this.tts.noteText(messageText(done));
+          const id = s.entryIds[this.utter.idx];
+          if (id) this.seenIds.add(id);
+          this.suppressIdx = this.utter.idx; // never re-begin a flushed message
+          this.utter = null;
+          this.tts.endUtterance();
         }
-      });
+      }
+
+      // Live turn = the last assistant message, never crossing a user message.
+      let liveIdx = -1;
+      for (let i = s.messages.length - 1; i >= 0; i--) {
+        const m = s.messages[i];
+        if (m.role === "assistant") {
+          liveIdx = i;
+          break;
+        }
+        if (m.role === "user") break;
+      }
+      if (liveIdx >= 0 && liveIdx !== this.suppressIdx) {
+        if (!this.utter) {
+          const id = s.entryIds[liveIdx];
+          if (!id || !this.seenIds.has(id)) {
+            this.utter = { idx: liveIdx };
+            this.tts.beginUtterance();
+          }
+        }
+        if (this.utter && this.utter.idx === liveIdx) {
+          this.tts.noteText(messageText(s.messages[liveIdx]));
+        }
+      }
     } else {
       for (const id of s.entryIds) this.seenIds.add(id);
     }
@@ -308,13 +361,6 @@ export class VoiceController {
   }
 
   private paint(): void {
-    const base = voicePhase(this.ui);
-    // Transients fill the gaps the flags can't see (chat-parity phase table).
-    let phase: VoiceGlowPhase = base;
-    if (base === "idle" || base === "working") {
-      if (this.synthesizing) phase = "synthesizing";
-      else if (this.connecting) phase = "connecting";
-    }
     // Activity readout: only while a run is doing something SPECIFIC; the
     // in-between run state shows nothing (the glow already carries it). The
     // stop countdown owns the center while it runs.
@@ -323,6 +369,10 @@ export class VoiceController {
       countdown === null && this.opts.store.state.agentRunning
         ? currentActivity(this.opts.store.state.messages)
         : null;
-    this.opts.onUi?.(phase, countdown, activity);
+    this.opts.onUi?.(
+      voicePhase(this.ui, this.ttsGlow, this.connecting),
+      countdown,
+      activity,
+    );
   }
 }

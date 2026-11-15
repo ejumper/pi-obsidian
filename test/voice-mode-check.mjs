@@ -40,6 +40,9 @@ const {
   initialVoiceUi,
   currentActivity,
   toolActivity,
+  ChunkCursor,
+  chunkTextCuts,
+  findChunk0End,
 } = bundle;
 
 // ---------------------------------------------------------------- banner decisions
@@ -195,6 +198,58 @@ eq(currentActivity([user("hi"), asst([text("reply")])]), null,
   "activity: streaming reply = nothing");
 eq(currentActivity([user("hi"), asst([])]), null,
   "activity: empty assistant message = nothing");
+
+// streaming chunking (0.5.2): chunk 0 + the server chunk_text port
+eq(chunkTextCuts("short text, under the chunk max"), [], "cuts: short text has none");
+eq(chunkTextCuts("a".repeat(380) + ". " + "b".repeat(30)), [],
+  "cuts: sub-40 tail scrap merges away its cut (server tail_merge)");
+eq(chunkTextCuts("a".repeat(380) + ". " + "b".repeat(60)), [382],
+  "cuts: sentence cut at 382, kept when the tail is big enough");
+eq(chunkTextCuts("x".repeat(150) + "\n\n" + "y".repeat(150) + ". " + "z".repeat(300)),
+  [152, 304],
+  "cuts: paragraph past the min beats the sentence end, then the next cut");
+
+eq(findChunk0End("Hello there. More"), 13, "chunk0: first sentence break");
+eq(findChunk0End("Hi\nMore text."), 3, "chunk0: line break beats the later sentence");
+eq(findChunk0End("Done."), 5, "chunk0: sentence ending at the text end fires");
+eq(findChunk0End("hello"), -1, "chunk0: nothing broken yet");
+eq(findChunk0End(Array(100).fill("word").join(" ")), 400,
+  "chunk0: word-gap fallback past the max");
+
+const cur = new ChunkCursor();
+eq(cur.feed("The capital of Fran"), [], "cursor: mid-sentence stays put");
+eq(cur.feed("The capital of France is Paris. And more co"),
+  [{ kind: "opener", text: "The capital of France is Paris." }],
+  "cursor: opener fires at the first break");
+eq(cur.feed("The capital of France is Paris. And more co"), [],
+  "cursor: feeding the same text twice is a no-op");
+eq(cur.flush("The capital of France is Paris. And more co"),
+  [{ kind: "tail", text: "And more co" }],
+  "cursor: flush speaks the open tail");
+
+// exactly-once: chunks reassemble the message, words in order
+const longMsg = Array(12).fill("Sentence one is here. Sentence two follows nicely.").join("\n\n");
+const cur2 = new ChunkCursor();
+const spoken = [];
+for (const n of [250, 450, longMsg.length]) {
+  for (const c of cur2.feed(longMsg.slice(0, n))) spoken.push(c.text);
+}
+for (const c of cur2.flush(longMsg)) spoken.push(c.text);
+eq(spoken.join(" ").replace(/\s+/g, " ").trim(),
+  longMsg.replace(/\s+/g, " ").trim(),
+  "cursor: every word spoken exactly once, in order");
+
+// glow precedence (0.5.2): green breath > green chase > white breath
+eq(voicePhase({ ...initialVoiceUi, runActive: true }, "playing"), "playing",
+  "phase: green breath beats white breath mid-run");
+eq(voicePhase({ ...initialVoiceUi, runActive: true }, "synthesizing"), "synthesizing",
+  "phase: green chase beats white breath mid-run");
+eq(voicePhase({ ...initialVoiceUi, runActive: true }, "off", true), "connecting",
+  "phase: white chase before the run starts");
+eq(voicePhase({ ...initialVoiceUi, runActive: true }, "off"), "working",
+  "phase: white breath when no TTS is happening");
+eq(voicePhase({ ...initialVoiceUi, recording: "on", runActive: true }, "playing"),
+  "recording", "phase: recording still beats everything");
 
 console.log(failures === 0 ? "\nvoice-mode-check: all green" : `\nvoice-mode-check: ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

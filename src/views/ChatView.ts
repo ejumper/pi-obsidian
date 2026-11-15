@@ -173,6 +173,7 @@ export class ChatView extends ItemView {
           this.voiceOverlay?.setCountdown(countdown);
           this.voiceOverlay?.setActivity(activity);
         },
+        onAmp: (amp) => this.voiceOverlay?.setAmp(amp),
         onNotice: (message) => {
           new Notice(`pi: ${message}`, 6000);
         },
