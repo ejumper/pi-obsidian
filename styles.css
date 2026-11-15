@@ -1427,27 +1427,31 @@ body.is-mobile .pi-voice-glow {
 }
 
 .pi-voice-glow-chase .pi-voice-glow-layer--strip {
-  --pi-voice-glow-w: calc(7px * var(--pi-voice-glow-scale));
-  --pi-voice-glow-blur: calc(4px * var(--pi-voice-glow-scale));
-  --pi-voice-glow-op: calc(0.2 + 0.8 * var(--breath));
+  --pi-voice-glow-w: calc(9px * var(--pi-voice-glow-scale));
+  --pi-voice-glow-blur: calc(4.5px * var(--pi-voice-glow-scale));
+  /* brighter centre: the surge no longer sinks to 0.2 between peaks */
+  --pi-voice-glow-op: calc(0.45 + 0.55 * var(--breath));
 }
 .pi-voice-glow-chase .pi-voice-glow-layer--strip .pi-voice-glow-ring {
+  /* head lift — the old core's drop-shadow trick, brightening the comet's
+     centre (0.5.4 user tweak: brighter, longer, reaching deeper inward) */
+  filter: drop-shadow(0 0 calc(5px * var(--pi-voice-glow-scale)) var(--pi-voice-glow-color));
   background: conic-gradient(
     from var(--pi-voice-glow-angle),
     transparent 0deg,
-    transparent 110deg,
-    color-mix(in srgb, var(--pi-voice-glow-color) 10%, transparent) 140deg,
-    color-mix(in srgb, var(--pi-voice-glow-color) 38%, transparent) 168deg,
+    transparent 95deg,
+    color-mix(in srgb, var(--pi-voice-glow-color) 18%, transparent) 130deg,
+    color-mix(in srgb, var(--pi-voice-glow-color) 48%, transparent) 165deg,
     var(--pi-voice-glow-color) 180deg,
-    color-mix(in srgb, var(--pi-voice-glow-color) 75%, transparent) 194deg,
-    transparent 214deg,
+    color-mix(in srgb, var(--pi-voice-glow-color) 82%, transparent) 196deg,
+    transparent 228deg,
     transparent 360deg
   );
   animation: pi-voice-glow-spin var(--wave-speed) linear infinite;
 }
 
 .pi-voice-glow-chase .pi-voice-glow-layer--spill {
-  --pi-voice-glow-w: calc(20px * var(--pi-voice-glow-scale));
+  --pi-voice-glow-w: calc(22px * var(--pi-voice-glow-scale));
   --pi-voice-glow-blur: calc(14px * var(--pi-voice-glow-scale));
   --pi-voice-glow-op: calc(0.18 + 0.5 * var(--breath));
 }

@@ -40,6 +40,9 @@ export class AudioAmp {
   private analyser: AnalyserNode | null = null;
   private raf = 0;
   private buf: Uint8Array | null = null;
+  private el: HTMLAudioElement | null = null;
+  /** True while the tap is actually emitting values (playback live). */
+  private emitting = false;
 
   constructor(private readonly opts: AudioAmpOptions) {}
 
@@ -69,14 +72,30 @@ export class AudioAmp {
       analyser.connect(ctx.destination);
       this.ctx = ctx;
       this.analyser = analyser;
+      this.el = el;
       this.buf = new Uint8Array(analyser.fftSize);
       void ctx.resume();
       const tick = () => {
         this.raf = requestAnimationFrame(tick);
-        if (!this.analyser || !this.buf) return;
+        if (!this.analyser || !this.buf || !this.el) return;
         // Backgrounding can suspend the context — and with it the element's
         // audio (it routes through the graph now). Keep it alive.
         if (this.ctx && this.ctx.state !== "running") void this.ctx.resume();
+        // Measure ONLY while audio actually flows. An idle element's silence
+        // feeds zeros forever and pins the glow at --breath 0 with the CSS
+        // animation frozen — it clobbered the mic envelope and the recording
+        // breath in 0.5.2/0.5.3 (the tap outlives the playback on purpose).
+        const live = !this.el.paused && !this.el.ended;
+        if (!live) {
+          if (this.emitting) {
+            this.emitting = false;
+            this.env = 0;
+            this.lastT = 0;
+            this.opts.onAmp(null);
+          }
+          return;
+        }
+        this.emitting = true;
         this.analyser.getByteTimeDomainData(this.buf as Uint8Array<ArrayBuffer>);
         this.push(rmsOf(this.buf));
       };
@@ -104,6 +123,7 @@ export class AudioAmp {
   stop(): void {
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    this.emitting = false;
     this.env = 0;
     this.lastT = 0;
     this.opts.onAmp(null);
