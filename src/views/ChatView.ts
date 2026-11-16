@@ -756,6 +756,12 @@ export class ChatView extends ItemView {
     void this.store.compact();
   }
 
+  /** Hotkey/command entry (0.5.8): "Send prompt" — the bluetooth-keyboard
+   *  send path (OSK Enter stays a newline). Empty input no-ops inside. */
+  sendPrompt(): void {
+    void this.sendCurrent();
+  }
+
   cycleThinking(): void {
     if (!this.store) return;
     const cur = this.store.state.thinkingLevel;

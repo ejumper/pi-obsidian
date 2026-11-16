@@ -1,4 +1,4 @@
-import { MarkdownView, Menu, Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Menu, Notice, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 import { PiClient } from "./api/client";
 import { DEFAULT_SETTINGS, PiSettingTab, type PiInstance, type PiSettings } from "./settings";
 import type { AgentStore } from "./state/agent-store";
@@ -92,6 +92,18 @@ export default class PiPlugin extends Plugin {
       callback: () => this.withChatView((view) => view.compactNow()),
     });
     this.addCommand({
+      id: "pi-send-prompt",
+      name: "Send prompt",
+      // Hotkey entry (0.5.8, user spec): bind it in Obsidian's Hotkeys
+      // (e.g. Ctrl+Enter for a bluetooth keyboard — the OSK's Enter keeps
+      // inserting newlines). Targets the pi tab IN FOCUS only: with several
+      // sessions open a press must never fire into another tab, so no
+      // withChatView fallback — no-op unless a pi tab is the active one.
+      callback: () => {
+        this.attachedActiveChatView()?.sendPrompt();
+      },
+    });
+    this.addCommand({
       id: "pi-cycle-thinking",
       name: "Cycle thinking level",
       callback: () => this.withChatView((view) => view.cycleThinking()),
@@ -129,6 +141,9 @@ export default class PiPlugin extends Plugin {
     });
 
     console.log(`pi-obsidian loaded ${this.manifest.version} (${BUILD_ID})`);
+    // iOS-only UI flag (0.5.8): Platform.isIos distinguishes the real iOS app
+    // from mobile-UI desktops (the Surface case) — window size does not.
+    document.body.classList.toggle("pi-ios", Platform.isIos);
     } catch (e) {
       // Never die silently: a load failure would otherwise leave restored
       // workspace leaves blank with no explanation.
@@ -138,7 +153,9 @@ export default class PiPlugin extends Plugin {
     }
   }
 
-  onunload(): void {}
+  onunload(): void {
+    document.body.classList.remove("pi-ios");
+  }
 
   /** Open pi IN the current tab (ribbon "Open pi"): replaces the active
    *  tab's view with pi unless it is already pi. Two guards: a sidebar leaf
