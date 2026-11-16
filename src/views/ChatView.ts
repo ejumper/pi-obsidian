@@ -109,6 +109,7 @@ export class ChatView extends ItemView {
 
   async setState(state: { instanceId?: string } | null): Promise<void> {
     if (state?.instanceId) this.instanceId = state.instanceId;
+    this.refreshLeafTitle();
   }
 
   getInstanceId(): string {
@@ -123,7 +124,7 @@ export class ChatView extends ItemView {
     this.store.rebind(this.plugin.getClient(id));
     this.setVoiceMode(false);
     // The tab title names the target device (0.5.6) — refresh it on switches.
-    (this.leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
+    this.refreshLeafTitle();
     this.render();
   }
 
@@ -259,6 +260,7 @@ export class ChatView extends ItemView {
       // Fresh tabs bind to last-used ?? default machine (Phase 13). Must run
       // before createStore — the store is created against this tab's client.
       if (!this.instanceId) this.instanceId = this.plugin.getInstanceForNewTab().id;
+      this.refreshLeafTitle();
       this.store = this.createStore();
       this.attachments = new AttachmentStage({
         upload: (file) => this.plugin.client.uploadAttachment(file),
@@ -333,10 +335,20 @@ export class ChatView extends ItemView {
   getDisplayText(): string {
     // 0.5.6 (user spec): the title says WHERE this session runs — the target
     // instance's device name. "pi" was decoration; the session name is
-    // already displayed in the bar below.
-    return (
-      this.plugin.settings.instances.find((i) => i.id === this.instanceId)?.name ?? "pi"
-    );
+    // already displayed in the bar below. Obsidian calls this at View.load(),
+    // before onOpen/setState assign instanceId — fall back to the instance a
+    // fresh tab would use so even the first paint is right.
+    const id = this.instanceId || this.plugin.getInstanceForNewTab().id;
+    return this.plugin.settings.instances.find((i) => i.id === id)?.name || "pi";
+  }
+
+  /** Re-assert the leaf title once the instance is known (0.5.6): Obsidian
+   *  sets titleEl from getDisplayText() before instanceId exists and never
+   *  re-reads it — set it directly (and ask the leaf to sync its tab header
+   *  where that API exists at runtime). */
+  private refreshLeafTitle(): void {
+    this.titleEl.setText(this.getDisplayText());
+    (this.leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
   }
 
   getIcon(): string {
