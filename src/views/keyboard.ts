@@ -108,11 +108,17 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
       INSET_VAR,
       `${readKeyboardHeightPx()}px`
     );
-    // Physical bottom-gutter flag (0.5.9): the composer's thumb lift exists
-    // to clear the home indicator — gate it on the safe area actually being
-    // there. Platform flags masquerade (a mobile-UI desktop reports itself
-    // iOS, which defeated the 0.5.8 isIos gate); the viewport's env() can't.
-    root.classList.toggle("pi-safe-bottom", safeInsetBottomPx() > 0);
+    // Phone-class flag for the composer's thumb lift (0.5.10): the lift is
+    // phone ergonomics — and both platform flags and env(safe-area-inset-bottom)
+    // proved unusable (the Surface's mobile UI masquerades as iOS at the
+    // platform level, and env() reads 0 inside Obsidian's webviews entirely —
+    // Obsidian's chrome owns the safe area). Screen class is the one signal
+    // neither can fake or resize away: the iPhone's screen is 393pt however
+    // the window looks; the Surface's is 1280+ however it is resized.
+    root.classList.toggle(
+      "pi-small-screen",
+      Math.min(screen.width, screen.height) < 500,
+    );
   };
 
   const apply = (): void => {

@@ -101,15 +101,14 @@
 }
 
 /* Phase 10 bottom-bar takeover: keyboard-closed the composer covers the app's
-   bottom nav and bleeds to the screen edge. The 1.5u thumb lift is gated on a
-   REAL bottom safe area (0.5.9 — .pi-safe-bottom, toggled by keyboard.ts's
-   env() probe): the lift exists to clear the home indicator, and platform
-   flags masquerade (a mobile-UI desktop reports itself iOS, which defeated
-   the 0.5.8 isIos gate) while the viewport's env() cannot. Where there is no
-   indicator the base 10px padding stands — equal to the editor↔buttons gap
-   (user spec) — so the button row never touches the window edge. Keyboard
-   open stays padding-free. */
-.pi-safe-bottom .pi-chat-composer:not(.pi-kb-open) {
+   bottom nav and bleeds to the screen edge. The 1.5u thumb lift is phone
+   ergonomics, gated on screen class (0.5.10 — .pi-small-screen, keyboard.ts):
+   platform flags masquerade (the Surface's mobile UI reports itself iOS) and
+   env(safe-area-inset-bottom) reads 0 inside Obsidian's webviews, but the
+   screen's size is neither fakable nor resizable. Small screens get the lift
+   (button row at thumb height); everything else keeps the base 10px padding —
+   equal to the editor↔buttons gap (user spec). Keyboard open stays padding-free. */
+.pi-small-screen .pi-chat-composer:not(.pi-kb-open) {
   padding-bottom: calc(var(--input-height, 40px) * 1.5);
 }
 
