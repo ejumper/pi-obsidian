@@ -5,6 +5,7 @@ import { MarkdownBody } from "./MarkdownBody";
 /* pi-obsidian divergence (0.5.5): compaction messages render inside a
    ProcessDetails-style caret block — see ../CompactionDetails. */
 import { CompactionDetails } from "../CompactionDetails";
+import { getSpeakController } from "../../speak-context";
 import { apiUrl } from "./api-base";
 import { copyText } from "./lib/clipboard";
 import { parseCompactionSummary } from "./lib/compaction-summary";
@@ -442,118 +443,36 @@ function AssistantMessageView({
 
   const [playState, setPlayState] = useState<"idle" | "loading" | "playing">("idle");
   const [playError, setPlayError] = useState<string | null>(null);
-  const audioElRef = useRef<HTMLAudioElement | null>(null);
-  const playSessionRef = useRef(0);
-
-  const speakChunkUrl = useCallback((chunkIndex: number) => (
-    `/api/sessions/${encodeURIComponent(sessionId!)}/entries/${encodeURIComponent(entryId!)}/speak/${chunkIndex}`
-  ), [sessionId, entryId]);
-
-  const speakFullUrl = useCallback(() => (
-    `/api/sessions/${encodeURIComponent(sessionId!)}/entries/${encodeURIComponent(entryId!)}/speak/full`
-  ), [sessionId, entryId]);
-
-  // Used when the voicemail-notify feature already generated the whole
-  // reply as one file (lib/speak.ts, getOrGenerateFullAudio) — play that
-  // directly instead of running Tier-1's separate chunked synthesis.
-  const playFullAudio = useCallback((mySession: number) => {
-    if (mySession !== playSessionRef.current) return;
-    const audio = new Audio(apiUrl(speakFullUrl()));
-    audioElRef.current = audio;
-    audio.oncanplay = () => { if (mySession === playSessionRef.current) setPlayState("playing"); };
-    audio.onended = () => {
-      if (mySession !== playSessionRef.current) return;
-      setPlayState("idle");
-      audioElRef.current = null;
-    };
-    audio.onerror = () => {
-      if (mySession !== playSessionRef.current) return;
-      setPlayError("Playback failed");
-      setPlayState("idle");
-      audioElRef.current = null;
-    };
-    audio.play().catch(() => {
-      if (mySession === playSessionRef.current) {
-        setPlayError("Playback blocked");
-        setPlayState("idle");
-      }
-    });
-  }, [speakFullUrl]);
-
-  const playChunk = useCallback((chunkIndex: number, totalChunks: number, mySession: number) => {
-    if (mySession !== playSessionRef.current) return;
-    const audio = new Audio(apiUrl(speakChunkUrl(chunkIndex)));
-    audioElRef.current = audio;
-    audio.oncanplay = () => { if (mySession === playSessionRef.current) setPlayState("playing"); };
-    audio.onended = () => {
-      if (mySession !== playSessionRef.current) return;
-      const next = chunkIndex + 1;
-      if (next < totalChunks) {
-        playChunk(next, totalChunks, mySession);
-      } else {
-        setPlayState("idle");
-        audioElRef.current = null;
-      }
-    };
-    audio.onerror = () => {
-      if (mySession !== playSessionRef.current) return;
-      setPlayError("Playback failed");
-      setPlayState("idle");
-      audioElRef.current = null;
-    };
-    audio.play().catch(() => {
-      if (mySession === playSessionRef.current) {
-        setPlayError("Playback blocked");
-        setPlayState("idle");
-      }
-    });
-    // Prefetch the next chunk in the background so it's server-cached (and
-    // ideally already fully generated) by the time this one finishes.
-    const next = chunkIndex + 1;
-    if (next < totalChunks) {
-      fetch(apiUrl(speakChunkUrl(next))).catch(() => {});
+  /* pi-obsidian divergence (0.5.6): pi-web reads aloud through its session
+     speak endpoints (server-side chunked synthesis + a full-audio fast path).
+     The button routes through the voice-mode TTS pipeline instead
+     (settings.ttsUrl + the same ChunkCursor chunking — identical rhythm), and
+     an explicit press interrupts whatever is speaking. See ../speak-context. */
+  const handlePlayClick = useCallback(() => {
+    const speak = getSpeakController();
+    if (!speak) {
+      setPlayError("TTS unavailable");
+      return;
     }
-  }, [speakChunkUrl]);
-
-  const handlePlayClick = useCallback(async () => {
-    if (playState === "playing" || playState === "loading") {
-      playSessionRef.current++;
-      audioElRef.current?.pause();
-      audioElRef.current = null;
+    if (playState !== "idle") {
+      speak.stop();
       setPlayState("idle");
       return;
     }
-    if (!sessionId || !entryId) return;
+    if (!entryId || !textContent) return;
     setPlayError(null);
-    setPlayState("loading");
-    const mySession = ++playSessionRef.current;
-    try {
-      const res = await fetch(apiUrl(`/api/sessions/${encodeURIComponent(sessionId)}/entries/${encodeURIComponent(entryId)}/speak`));
-      const data = await res.json() as { chunkCount?: number; fullAudioReady?: boolean; error?: string };
-      if (mySession !== playSessionRef.current) return;
-      if (!res.ok || data.error || !data.chunkCount) {
-        setPlayError(data.error ?? "No audio available");
-        setPlayState("idle");
-        return;
-      }
-      if (data.fullAudioReady) {
-        playFullAudio(mySession);
-      } else {
-        playChunk(0, data.chunkCount, mySession);
-      }
-    } catch (e) {
-      if (mySession !== playSessionRef.current) return;
-      setPlayError(String(e));
-      setPlayState("idle");
-    }
-  }, [playState, sessionId, entryId, playChunk, playFullAudio]);
+    speak.speak(entryId, textContent);
+  }, [playState, entryId, textContent]);
 
   useEffect(() => {
-    return () => {
-      playSessionRef.current++;
-      audioElRef.current?.pause();
-    };
-  }, []);
+    const speak = getSpeakController();
+    if (!speak) return;
+    return speak.subscribe((id, phase, error) => {
+      if (id !== entryId) return;
+      if (error) setPlayError(error);
+      setPlayState(phase);
+    });
+  }, [entryId]);
 
   useEffect(() => {
     if (!isStreaming) {

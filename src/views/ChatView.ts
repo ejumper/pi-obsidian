@@ -4,6 +4,7 @@
 import { ItemView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage, AttachedImageInput, CustomMessage } from "../api/types";
+import type { SpeakController } from "./speak-context";
 import { computeTranscriptUnits } from "./message-display";
 import { stripVoiceBlocks, stripMessageVoiceBlocks } from "./voice/banner-state";
 import { TranscriptRenderer } from "./react/Transcript";
@@ -72,6 +73,19 @@ export class ChatView extends ItemView {
   private prevShownForFocus = false;
   /** The machine this tab talks to (Phase 13) — persisted in leaf state. */
   private instanceId = "";
+  /** Read-aloud backend for the React subtree (module-global, re-pointed per
+   *  render pass like api-base) — routes into the voice-mode TTS pipeline. */
+  private speakController: SpeakController = {
+    speak: (id, text) => {
+      if (!this.voiceController) {
+        new Notice("pi: TTS unavailable");
+        return;
+      }
+      this.voiceController.speakMessage(id, text);
+    },
+    stop: () => this.voiceController?.stopSpeaking(),
+    subscribe: (fn) => this.voiceController?.subscribeSpeak(fn) ?? (() => {}),
+  };
   /** Voice mode (PHASE-14) — hands-free overlay over the transcript. */
   private voiceController: VoiceController | null = null;
   private voiceOverlay: VoiceOverlay | null = null;
@@ -108,6 +122,8 @@ export class ChatView extends ItemView {
     this.instanceId = id;
     this.store.rebind(this.plugin.getClient(id));
     this.setVoiceMode(false);
+    // The tab title names the target device (0.5.6) — refresh it on switches.
+    (this.leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
     this.render();
   }
 
@@ -315,7 +331,12 @@ export class ChatView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "pi";
+    // 0.5.6 (user spec): the title says WHERE this session runs — the target
+    // instance's device name. "pi" was decoration; the session name is
+    // already displayed in the bar below.
+    return (
+      this.plugin.settings.instances.find((i) => i.id === this.instanceId)?.name ?? "pi"
+    );
   }
 
   getIcon(): string {
@@ -871,6 +892,7 @@ export class ChatView extends ItemView {
       runError: s.runError,
       compacting: s.isCompacting,
       apiBase: this.plugin.getClient(this.instanceId).baseUrl,
+      speak: this.speakController,
       onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
       onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },
       onEditContent: (content: string) => this.insertIntoComposer(stripVoiceBlocks(content)),

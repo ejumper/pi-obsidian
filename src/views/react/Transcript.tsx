@@ -12,6 +12,7 @@ import { MessageView } from "./pi-web/MessageView";
 import { ProcessDetailsGroup } from "./pi-web/ProcessDetailsGroup";
 import { setMarkdownContext } from "./pi-web/markdown-context";
 import { setApiBase } from "./pi-web/api-base";
+import { setSpeakController, type SpeakController } from "../speak-context";
 
 export interface TranscriptData {
   units: TranscriptUnit[];
@@ -28,6 +29,8 @@ export interface TranscriptData {
   /** This tab's machine base URL — the React subtree's api shim is a module
    *  global, so it is re-pointed on every render pass (Phase 13). */
   apiBase?: string;
+  /** Read-aloud backend — same module-global re-pointing as apiBase (0.5.6). */
+  speak?: SpeakController;
   /** Run-ending error shown as red session output (0.4.12) */
   runError?: string | null;
   /** Live compaction: plain "Compacting..." line at the session tail (0.5.5). */
@@ -222,6 +225,7 @@ export class TranscriptRenderer {
     // The api shim is a module global — re-point it every pass so two tabs on
     // different machines don't race it (Phase 13).
     if (data.apiBase) setApiBase(data.apiBase);
+    if (data.speak) setSpeakController(data.speak);
     this.root?.render(<TranscriptView {...data} />);
   }
 

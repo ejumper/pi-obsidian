@@ -22,6 +22,7 @@ import {
 } from "./gesture-state";
 import type { VoicePrompts } from "./prompts";
 import { currentActivity } from "./activity";
+import type { SpeakListener } from "../speak-context";
 import { VoiceSession } from "./voice-session";
 import { TtsPlayer } from "./tts";
 import { VoiceRecorder } from "./stt";
@@ -72,6 +73,9 @@ export class VoiceController {
   private utter: { idx: number } | null = null;
   /** Utterance whose speech was stopped — never restart it. */
   private suppressIdx = -1;
+  /** Read-aloud observers (the message Read button) + its active message id. */
+  private speakListeners = new Set<SpeakListener>();
+  private speakId: string | null = null;
   private mode: "voice" | "normal" = "normal";
   private countdownTimer: number | null = null;
   private countdownLeft = 0;
@@ -85,7 +89,10 @@ export class VoiceController {
     this.session = new VoiceSession(opts.prompts);
     this.tts = new TtsPlayer({
       url: opts.ttsUrl,
-      onError: (m) => opts.onNotice?.(`Voice TTS — ${m}`),
+      onError: (m) => {
+        this.emitSpeakError(m);
+        opts.onNotice?.(`Voice TTS — ${m}`);
+      },
       onAmp: opts.onAmp,
       onStateChange: (st) => {
         this.ttsGlow = st === "idle" ? "off" : st;
@@ -94,6 +101,7 @@ export class VoiceController {
         if (st === "idle") this.ui = { ...this.ui, playback: "off" };
         else if (st === "paused") this.ui = { ...this.ui, playback: "paused" };
         else this.ui = { ...this.ui, playback: "on" };
+        this.emitSpeak(st);
         this.paint();
       },
     });
@@ -115,6 +123,44 @@ export class VoiceController {
   /** First pointer gesture on the overlay — unlock iOS autoplay. */
   unlock(): void {
     this.tts.unlock();
+  }
+
+  /**
+   * Read-aloud (0.5.6): the message Read button shares this pipeline — same
+   * chunking and endpoint as voice mode. An explicit press interrupts
+   * whatever is speaking (voice speech included): user action wins.
+   */
+  speakMessage(id: string, text: string): void {
+    this.tts.unlock(); // runs inside the click — the iOS gesture
+    this.tts.stopAndFlush();
+    this.speakId = id;
+    this.tts.beginUtterance();
+    this.tts.noteText(text);
+    this.tts.endUtterance();
+  }
+
+  /** Stop the current read-aloud (the button pressed while playing). */
+  stopSpeaking(): void {
+    this.speakId = null;
+    this.tts.stopAndFlush();
+  }
+
+  subscribeSpeak(fn: SpeakListener): () => void {
+    this.speakListeners.add(fn);
+    return () => this.speakListeners.delete(fn);
+  }
+
+  private emitSpeak(st: "idle" | "synthesizing" | "playing" | "paused"): void {
+    const phase = st === "synthesizing" ? "loading" : st === "idle" ? "idle" : "playing";
+    const id = this.speakId;
+    if (st === "idle") this.speakId = null;
+    for (const fn of this.speakListeners) fn(id, phase);
+  }
+
+  private emitSpeakError(message: string): void {
+    const id = this.speakId;
+    this.speakId = null;
+    for (const fn of this.speakListeners) fn(id, "idle", message);
   }
 
   get voiceMode(): boolean {
