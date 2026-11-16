@@ -108,6 +108,11 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
       INSET_VAR,
       `${readKeyboardHeightPx()}px`
     );
+    // Physical bottom-gutter flag (0.5.9): the composer's thumb lift exists
+    // to clear the home indicator — gate it on the safe area actually being
+    // there. Platform flags masquerade (a mobile-UI desktop reports itself
+    // iOS, which defeated the 0.5.8 isIos gate); the viewport's env() can't.
+    root.classList.toggle("pi-safe-bottom", safeInsetBottomPx() > 0);
   };
 
   const apply = (): void => {
