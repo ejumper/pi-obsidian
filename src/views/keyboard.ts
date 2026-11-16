@@ -92,6 +92,22 @@ export function composerBottomPx(): number {
   return navbar + Math.max(safeInsetBottomPx(), 12) + 6;
 }
 
+/**
+ * Phone-class screen for the composer's thumb lift (0.5.11). Screen size is
+ * the one device signal that neither masquerades nor resizes: the Surface's
+ * mobile UI reports itself iOS at the platform level (defeating Platform
+ * flags), env(safe-area-inset-bottom) reads 0 inside Obsidian's webviews
+ * entirely (Obsidian's chrome owns the safe area), and window width changes
+ * with snapping — but the iPhone's SCREEN is 393pt however you hold it and
+ * the Surface's is 1280+ however you resize. Guarded for the headless
+ * harness (no `screen` global → desktop default).
+ */
+export function phoneClassScreen(): boolean {
+  return (
+    typeof screen !== "undefined" && Math.min(screen.width, screen.height) < 500
+  );
+}
+
 /** Tracks the mobile soft-keyboard inset and publishes it as CSS custom
  *  properties on `root`. Returns a cleanup function. */
 export function attachKeyboardInset(root: HTMLElement): () => void {
@@ -103,23 +119,11 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
   // the reveal scroll iOS adds is pinned away continuously.
   const applyVars = (): void => {
     // Only --pi-keyboard-inset is consumed by CSS (input max-height). The
-    // composer position is set as direct pixel styles (composerBottomPx()).
+    // composer position AND bottom padding are set as direct pixel styles
+    // (composerBottomPx() / phoneClassScreen() — ChatView's geometry loop).
     document.documentElement.style.setProperty(
       INSET_VAR,
       `${readKeyboardHeightPx()}px`
-    );
-    // Phone-class flag for the composer's thumb lift (0.5.10): the lift is
-    // phone ergonomics — and both platform flags and env(safe-area-inset-bottom)
-    // proved unusable (the Surface's mobile UI masquerades as iOS at the
-    // platform level, and env() reads 0 inside Obsidian's webviews entirely —
-    // Obsidian's chrome owns the safe area). Screen class is the one signal
-    // neither can fake or resize away: the iPhone's screen is 393pt however
-    // the window looks; the Surface's is 1280+ however it is resized.
-    // (Guarded: the headless harness has no `screen` global — desktop default.)
-    const scr = typeof screen !== "undefined" ? { w: screen.width, h: screen.height } : null;
-    root.classList.toggle(
-      "pi-small-screen",
-      scr !== null && Math.min(scr.w, scr.h) < 500,
     );
   };
 

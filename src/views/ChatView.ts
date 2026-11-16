@@ -11,7 +11,7 @@ import { TranscriptRenderer } from "./react/Transcript";
 import { AttachmentStage } from "./composer/attachments";
 import { buildMentionPrefix, collectOpenFiles, mapServerPaths } from "./composer/mentions";
 import { resolveServerPath } from "../state/paths";
-import { attachKeyboardInset, composerBottomPx, readKeyboardHeightPx } from "./keyboard";
+import { attachKeyboardInset, composerBottomPx, phoneClassScreen, readKeyboardHeightPx } from "./keyboard";
 import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
 import { VoiceController } from "./voice/voice-controller";
@@ -283,13 +283,20 @@ export class ChatView extends ItemView {
         if (shown && !this.prevShownForFocus) this.plugin.setActiveChatView(this);
         this.prevShownForFocus = shown;
         this.composerEl.style.display = shown ? "" : "none";
-        // CSS pads the composer's bottom only in the mobile closed state
-        // (nav-covering takeover) — keep the class in sync every tick.
-        this.composerEl.toggleClass("pi-kb-open", readKeyboardHeightPx() > 0);
         if (shown) {
           this.composerEl.style.left = `${Math.round(rect.left)}px`;
           this.composerEl.style.width = `${Math.round(rect.width)}px`;
           this.composerEl.style.bottom = `${composerBottomPx()}px`;
+          // Bottom padding as a DIRECT style (0.5.11): three selector/class
+          // gates for this failed — platform flags masquerade, env() reads 0
+          // in these webviews, and the composer is body-attached so
+          // root-scoped selectors can never match it. Phone-class screens get
+          // the 1.5u thumb lift when the keyboard is closed; everything else
+          // gets the base 10px (equal to the editor↔buttons gap — user spec).
+          this.composerEl.style.paddingBottom =
+            phoneClassScreen() && readKeyboardHeightPx() <= 0
+              ? "calc(var(--input-height, 40px) * 1.5)"
+              : "10px";
           // The transcript must END at the composer top — the app's box chain
           // doesn't (it runs behind the composer/navbar and pads for the
           // keyboard). Screen geometry again: content height = composer top.

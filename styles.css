@@ -100,17 +100,11 @@
   border-top: 1px solid var(--background-modifier-border);
 }
 
-/* Phase 10 bottom-bar takeover: keyboard-closed the composer covers the app's
-   bottom nav and bleeds to the screen edge. The 1.5u thumb lift is phone
-   ergonomics, gated on screen class (0.5.10 — .pi-small-screen, keyboard.ts):
-   platform flags masquerade (the Surface's mobile UI reports itself iOS) and
-   env(safe-area-inset-bottom) reads 0 inside Obsidian's webviews, but the
-   screen's size is neither fakable nor resizable. Small screens get the lift
-   (button row at thumb height); everything else keeps the base 10px padding —
-   equal to the editor↔buttons gap (user spec). Keyboard open stays padding-free. */
-.pi-small-screen .pi-chat-composer:not(.pi-kb-open) {
-  padding-bottom: calc(var(--input-height, 40px) * 1.5);
-}
+/* The composer's bottom padding is driven as a DIRECT style by ChatView's
+   geometry loop (0.5.11): phone-class screens get the 1.5u thumb lift, all
+   others the base 10px above. Not by selectors — three class/selector gates
+   failed here (platform flags masquerade, env() reads 0 in these webviews,
+   and the composer is body-attached so root-scoped selectors never match). */
 
 /* Working indicator: a thin segment sliding back and forth ON the composer's
    top border while the agent runs (ChatView toggles .pi-working). Absolutely
