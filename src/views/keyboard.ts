@@ -115,9 +115,11 @@ export function attachKeyboardInset(root: HTMLElement): () => void {
     // Obsidian's chrome owns the safe area). Screen class is the one signal
     // neither can fake or resize away: the iPhone's screen is 393pt however
     // the window looks; the Surface's is 1280+ however it is resized.
+    // (Guarded: the headless harness has no `screen` global — desktop default.)
+    const scr = typeof screen !== "undefined" ? { w: screen.width, h: screen.height } : null;
     root.classList.toggle(
       "pi-small-screen",
-      Math.min(screen.width, screen.height) < 500,
+      scr !== null && Math.min(scr.w, scr.h) < 500,
     );
   };
 
