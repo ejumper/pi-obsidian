@@ -127,18 +127,7 @@ export default class PiPlugin extends Plugin {
     });
 
     // Ribbon button opens the secondary-actions menu (PLAN/OVERVIEW §3).
-    this.addRibbonIcon("message-square", "pi", (ev) => {
-      // Navigation only — session actions live in the right sidebar panel
-      // (New session / Compact there) and in the composer (Stop, model menu).
-      const menu = new Menu();
-      menu.addItem((item) =>
-        item.setTitle("Open pi").setIcon("message-square").onClick(() => void this.openPiHere())
-      );
-      menu.addItem((item) =>
-        item.setTitle("Open pi in new tab").setIcon("plus").onClick(() => void this.activateChatViewInNewTab())
-      );
-      menu.showAtMouseEvent(ev);
-    });
+    this.addRibbonIcon("message-square", "pi", (ev) => this.showRibbonMenu(ev));
 
     console.log(`pi-obsidian loaded ${this.manifest.version} (${BUILD_ID})`);
     } catch (e) {
@@ -151,6 +140,26 @@ export default class PiPlugin extends Plugin {
   }
 
   onunload(): void {}
+
+  /** The pi ribbon menu — navigation-only (PLAN/OVERVIEW §3). Shared by the
+   *  ribbon icon and the composer's left button (settings: "Ribbon menu quick
+   *  access"). Session actions live in the right sidebar panel (New session /
+   *  Compact there) and in the composer (Stop, model menu). */
+  showRibbonMenu(ev: MouseEvent): void {
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item.setTitle("Open pi").setIcon("message-square").onClick(() => void this.openPiHere())
+    );
+    menu.addItem((item) =>
+      item.setTitle("Open pi in new tab").setIcon("plus").onClick(() => void this.activateChatViewInNewTab())
+    );
+    menu.showAtMouseEvent(ev);
+  }
+
+  /** Refresh composer tab-button faces (the settings toggle can flip live). */
+  refreshTabButtons(): void {
+    this.activeChatView?.updateTabCount();
+  }
 
   /** Open pi IN the current tab (ribbon "Open pi"): replaces the active
    *  tab's view with pi unless it is already pi. Two guards: a sidebar leaf

@@ -47,6 +47,9 @@ export interface PiSettings {
   ttsUrl: string;
   /** Voice-mode STT endpoint (OpenAI-compatible /v1/audio/transcriptions base). */
   sttUrl: string;
+  /** Far-left composer button tap action: tab overview (default) or quick
+   *  access to the pi ribbon menu. Long-press keeps the tab menu either way. */
+  tabButtonAction: "tabs" | "ribbon";
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
@@ -59,6 +62,7 @@ export const DEFAULT_SETTINGS: PiSettings = {
   includeMentions: false,
   ttsUrl: "https://piper.halfab.net",
   sttUrl: "https://stt.halfab.net",
+  tabButtonAction: "tabs",
 };
 
 export class PiSettingTab extends PluginSettingTab {
@@ -210,6 +214,23 @@ export class PiSettingTab extends PluginSettingTab {
         dropdown.onChange(async (value) => {
           this.plugin.settings.defaultThinkingLevel = value as ThinkingLevelOption;
           await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl).setName("Interface").setHeading();
+    new Setting(containerEl)
+      .setName("Tab button action")
+      .setDesc(
+        "The far-left button under the prompt editor. Tap: tab overview (default) or quick access to the pi ribbon menu. Long-press keeps the tab menu either way."
+      )
+      .addDropdown((dropdown) => {
+        dropdown.addOption("tabs", "Tab overview");
+        dropdown.addOption("ribbon", "Ribbon menu quick access");
+        dropdown.setValue(this.plugin.settings.tabButtonAction);
+        dropdown.onChange(async (value) => {
+          this.plugin.settings.tabButtonAction = value === "ribbon" ? "ribbon" : "tabs";
+          await this.plugin.saveSettings();
+          this.plugin.refreshTabButtons();
         });
       });
 

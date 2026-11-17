@@ -53,6 +53,7 @@ export class ChatView extends ItemView {
   private pendingCwd: string | null = null;
   /** Mobile composer tab button's count span (null on desktop — no button). */
   private tabCountEl: HTMLElement | null = null;
+  private tabBtnEl: HTMLButtonElement | null = null;
   /** First openTabOverview() call logs the scan so it can be corrected. */
   private tabOverviewLogged = false;
   private attachments!: AttachmentStage;
@@ -492,6 +493,7 @@ export class ChatView extends ItemView {
       cls: "pi-icon-btn pi-tab-btn",
       attr: { "aria-label": "Tabs", title: "Tabs" },
     });
+    this.tabBtnEl = btn;
     this.tabCountEl = btn.createSpan({ cls: "pi-tab-count", text: "0" });
     this.updateTabCount();
 
@@ -532,18 +534,35 @@ export class ChatView extends ItemView {
         ev.stopPropagation();
         return;
       }
+      // Settings: the button is the tab overview (default) or quick access to
+      // the pi ribbon menu (long-press keeps the tab menu either way).
+      if (this.plugin.settings.tabButtonAction === "ribbon") {
+        this.plugin.showRibbonMenu(ev);
+        return;
+      }
       this.openTabOverview();
     });
   }
 
   /** Refresh the tab button's count from the workspace's root leaves. */
-  private updateTabCount(): void {
+  /** Refresh the tab button's face: root-leaf count in tabs mode, the pi
+   *  ribbon icon in ribbon-menu mode (settings can flip while views are open). */
+  updateTabCount(): void {
     if (!this.tabCountEl) return;
+    if (this.plugin.settings.tabButtonAction === "ribbon") {
+      this.tabCountEl.empty();
+      setIcon(this.tabCountEl, "message-square");
+      this.tabBtnEl?.setAttribute("aria-label", "pi menu");
+      this.tabBtnEl?.setAttribute("title", "pi menu");
+      return;
+    }
     let n = 0;
     this.app.workspace.iterateRootLeaves(() => {
       n++;
     });
     this.tabCountEl.setText(String(n));
+    this.tabBtnEl?.setAttribute("aria-label", "Tabs");
+    this.tabBtnEl?.setAttribute("title", "Tabs");
   }
 
   /** Tap → open the tab overview. The command id depends on which plugin
