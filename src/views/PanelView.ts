@@ -28,6 +28,8 @@ export class PanelView extends ItemView {
   private lastActiveKey = "";
   private mainEl!: HTMLElement;
   private mode: PanelMode = "recent";
+  /** Machine whose data the lists currently show — machine switches re-root. */
+  private shownInstanceId = "";
   /** Include/exclude open-file @mentions pill (settings-backed). */
   private mentionsPill: PillSelect<boolean> | null = null;
   /** Voice-mode toggle — focused pi tab (PHASE-14). */
@@ -117,7 +119,7 @@ export class PanelView extends ItemView {
     // switches don't reliably deliver active-leaf-change (see main.ts), so a
     // tap re-reads the focused tab before the user picks a machine.
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => this.syncMachinePill())
+      this.app.workspace.on("active-leaf-change", () => this.onFocusMaybeChanged())
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.syncVoiceButton())
@@ -226,6 +228,14 @@ export class PanelView extends ItemView {
     btn.setAttribute("title", active ? "Voice mode on" : "Voice mode");
   }
 
+  /** Focus changes can switch which machine the panel follows (pi tab
+   *  switches do it silently on mobile): re-sync the pill and reload the
+   *  lists when the followed machine actually changed. */
+  private onFocusMaybeChanged(): void {
+    this.syncMachinePill();
+    if (this.focusedInstanceId() !== this.shownInstanceId) void this.refresh();
+  }
+
   /** Re-sync the machine pill (label + selection) to the focused pi tab's
    *  instance — from refresh(), focus changes, and pill open, mirroring how
    *  the mentions pill re-syncs in refresh(). */
@@ -306,8 +316,8 @@ export class PanelView extends ItemView {
     }
     try {
       // Folders are per-machine too: resolve and browse through the focused
-      // tab's client. listDir re-resolves per call, so a machine switch is
-      // picked up by the next refresh() → tree.refresh().
+      // tab's client. The ROOT is machine-specific, so refresh() drops the
+      // tree on a machine switch and this rebuilds it against the new root.
       const root = await resolveServerPath(
         this.plugin.getClient(this.focusedInstanceId()),
         this.plugin.getInstancePaths(this.focusedInstanceId()).pathPrefix
@@ -357,12 +367,23 @@ export class PanelView extends ItemView {
   async refresh(): Promise<void> {
     this.syncMentionsPill();
     this.syncMachinePill();
+    // Machine truth (0.5.14): everything below reads the machine as resolved
+    // NOW. A machine switch re-roots the folders tree too — it is built at
+    // the machine's own path prefix, so the old root would keep listing the
+    // PREVIOUS device's folders no matter how often the list reloaded.
+    const id = this.focusedInstanceId();
+    if (id !== this.shownInstanceId) {
+      this.shownInstanceId = id;
+      if (this.tree) {
+        this.tree.el.remove();
+        this.tree = null;
+        if (this.mode === "folders") void this.ensureTree();
+      }
+    }
     this.list.setLoading();
     try {
       // Sessions are per-machine: list them from the focused tab's client.
-      const res = await this.plugin
-        .getClient(this.focusedInstanceId())
-        .listSessions();
+      const res = await this.plugin.getClient(id).listSessions();
       const sessions = [...res.sessions].sort((a, b) =>
         b.modified.localeCompare(a.modified)
       );

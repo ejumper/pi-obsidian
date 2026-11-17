@@ -261,6 +261,17 @@ export default class PiPlugin extends Plugin {
   /** The active chat view while its leaf is still in the workspace — a
    *  closed tab must never be targeted (T41). */
   private attachedActiveChatView(): ChatView | null {
+    // Truth first (0.5.14): the workspace's actual active leaf wins when it is
+    // a pi tab. The tracker below is edge-reported (visibility polls + taps)
+    // and mobile tab switches don't reliably reach it — a stale tracker aimed
+    // the panel's session picker at the PREVIOUS device until something
+    // happened to re-report. Keep the tracker in sync on the way so later
+    // readers see the same answer.
+    const live = this.app.workspace.activeLeaf?.view;
+    if (live instanceof ChatView && live.getViewType() === VIEW_TYPE_PI_CHAT) {
+      this.activeChatView = live;
+      return live;
+    }
     const active = this.activeChatView;
     if (!active) return null;
     const attached = this.app.workspace
