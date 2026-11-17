@@ -141,10 +141,9 @@ export default class PiPlugin extends Plugin {
 
   onunload(): void {}
 
-  /** The pi ribbon menu — navigation-only (PLAN/OVERVIEW §3). Shared by the
-   *  ribbon icon and the composer's left button (settings: "Ribbon menu quick
-   *  access"). Session actions live in the right sidebar panel (New session /
-   *  Compact there) and in the composer (Stop, model menu). */
+  /** The pi ribbon menu — navigation-only (PLAN/OVERVIEW §3), opened by the
+   *  ribbon icon. Session actions live in the right sidebar panel (New
+   *  session / Compact there) and in the composer (Stop, model menu). */
   showRibbonMenu(ev: MouseEvent): void {
     const menu = new Menu();
     menu.addItem((item) =>

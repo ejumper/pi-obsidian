@@ -16,6 +16,7 @@ import type PiPlugin from "../main";
 import { BUILD_ID } from "../main";
 import { VoiceController } from "./voice/voice-controller";
 import { VoiceOverlay } from "./voice/voice-overlay";
+import { invokeRibbonItem, listRibbonItems } from "./ribbon-items";
 import { loadVoicePrompts } from "./voice/prompts";
 
 export const VIEW_TYPE_PI_CHAT = "pi-chat";
@@ -534,10 +535,12 @@ export class ChatView extends ItemView {
         ev.stopPropagation();
         return;
       }
-      // Settings: the button is the tab overview (default) or quick access to
-      // the pi ribbon menu (long-press keeps the tab menu either way).
+      // Settings: the button is the tab overview (default) or a ribbon menu
+      // item (long-press keeps the tab menu either way).
       if (this.plugin.settings.tabButtonAction === "ribbon") {
-        this.plugin.showRibbonMenu(ev);
+        const label = this.plugin.settings.tabButtonRibbonItem;
+        if (label && invokeRibbonItem(label)) return;
+        new Notice("pi: ribbon item not found");
         return;
       }
       this.openTabOverview();
@@ -551,9 +554,16 @@ export class ChatView extends ItemView {
     if (!this.tabCountEl) return;
     if (this.plugin.settings.tabButtonAction === "ribbon") {
       this.tabCountEl.empty();
-      setIcon(this.tabCountEl, "message-square");
-      this.tabBtnEl?.setAttribute("aria-label", "pi menu");
-      this.tabBtnEl?.setAttribute("title", "pi menu");
+      // Mirror the chosen ribbon item's own icon so the button reads as it.
+      const item = listRibbonItems().find(
+        (it) => it.label === this.plugin.settings.tabButtonRibbonItem
+      );
+      const svg = item?.el.querySelector("svg");
+      if (svg) this.tabCountEl.appendChild(svg.cloneNode(true));
+      else setIcon(this.tabCountEl, "zap");
+      const label = item?.label ?? "Ribbon item";
+      this.tabBtnEl?.setAttribute("aria-label", label);
+      this.tabBtnEl?.setAttribute("title", label);
       return;
     }
     let n = 0;

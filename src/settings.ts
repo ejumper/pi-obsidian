@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting, type DropdownComponent, TextComponent } from "obsidian";
 import type PiPlugin from "./main";
 import type { ThinkingLevelOption } from "./state/agent-store";
+import { listRibbonItems } from "./views/ribbon-items";
 
 const THINKING_LEVELS: { value: ThinkingLevelOption; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -47,9 +48,11 @@ export interface PiSettings {
   ttsUrl: string;
   /** Voice-mode STT endpoint (OpenAI-compatible /v1/audio/transcriptions base). */
   sttUrl: string;
-  /** Far-left composer button tap action: tab overview (default) or quick
-   *  access to the pi ribbon menu. Long-press keeps the tab menu either way. */
+  /** Far-left composer button tap action: tab overview (default) or a ribbon
+   *  menu item (see tabButtonRibbonItem). Long-press keeps the tab menu. */
   tabButtonAction: "tabs" | "ribbon";
+  /** Label (aria-label) of the ribbon item the button triggers in ribbon mode. */
+  tabButtonRibbonItem: string;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
@@ -63,6 +66,7 @@ export const DEFAULT_SETTINGS: PiSettings = {
   ttsUrl: "https://piper.halfab.net",
   sttUrl: "https://stt.halfab.net",
   tabButtonAction: "tabs",
+  tabButtonRibbonItem: "",
 };
 
 export class PiSettingTab extends PluginSettingTab {
@@ -221,18 +225,48 @@ export class PiSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Tab button action")
       .setDesc(
-        "The far-left button under the prompt editor. Tap: tab overview (default) or quick access to the pi ribbon menu. Long-press keeps the tab menu either way."
+        "The far-left button under the prompt editor. Tap: tab overview (default) or a ribbon menu item. Long-press keeps the tab menu either way."
       )
       .addDropdown((dropdown) => {
         dropdown.addOption("tabs", "Tab overview");
-        dropdown.addOption("ribbon", "Ribbon menu quick access");
+        dropdown.addOption("ribbon", "Ribbon menu item");
         dropdown.setValue(this.plugin.settings.tabButtonAction);
         dropdown.onChange(async (value) => {
           this.plugin.settings.tabButtonAction = value === "ribbon" ? "ribbon" : "tabs";
           await this.plugin.saveSettings();
+          this.display();
           this.plugin.refreshTabButtons();
         });
       });
+
+    // Second dropdown only in ribbon mode: pick WHICH ribbon item to trigger.
+    if (this.plugin.settings.tabButtonAction === "ribbon") {
+      const items = listRibbonItems();
+      new Setting(containerEl)
+        .setName("Ribbon item")
+        .setDesc("Ribbon menu item the button triggers.")
+        .addDropdown((dropdown) => {
+          if (items.length === 0) {
+            dropdown.addOption("", "No ribbon items found");
+            dropdown.setDisabled(true);
+            return;
+          }
+          for (const it of items) dropdown.addOption(it.label, it.label);
+          // First use: default to the user's "quick access" item when present.
+          if (!this.plugin.settings.tabButtonRibbonItem) {
+            const guess =
+              items.find((it) => /quick\s*access/i.test(it.label))?.label ?? items[0].label;
+            this.plugin.settings.tabButtonRibbonItem = guess;
+            void this.plugin.saveSettings();
+          }
+          dropdown.setValue(this.plugin.settings.tabButtonRibbonItem);
+          dropdown.onChange(async (value) => {
+            this.plugin.settings.tabButtonRibbonItem = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshTabButtons();
+          });
+        });
+    }
 
     new Setting(containerEl).setName("Voice mode").setHeading();
     new Setting(containerEl)
