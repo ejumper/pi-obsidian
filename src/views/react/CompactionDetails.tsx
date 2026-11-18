@@ -13,6 +13,25 @@
 import { useState, type ReactNode } from "react";
 import type { CustomMessage } from "../../api/types";
 
+/** Caret parts shared by the history caret (CompactionDetails) and the tail
+ *  caret (Transcript's finished-compaction line) — "Session Compacted · N
+ *  tokens compacted · Session size M". Numbers are optional at call sites:
+ *  historical blocks carry tokensBefore only (0.5.5), the tail carries both
+ *  from the live compaction result. */
+export function compactionCaretParts(
+  tokensBefore?: number,
+  estimatedTokensAfter?: number
+): string[] {
+  const parts = ["Session Compacted"];
+  if (typeof tokensBefore === "number") {
+    parts.push(`${tokensBefore.toLocaleString()} tokens compacted`);
+  }
+  if (typeof estimatedTokensAfter === "number") {
+    parts.push(`Session size ${estimatedTokensAfter.toLocaleString()}`);
+  }
+  return parts;
+}
+
 export function CompactionDetails({
   message,
   children,
@@ -25,13 +44,7 @@ export function CompactionDetails({
     tokensBefore?: number;
     estimatedTokensAfter?: number;
   };
-  const parts = ["Session Compacted"];
-  if (typeof details.tokensBefore === "number") {
-    parts.push(`${details.tokensBefore.toLocaleString()} tokens compacted`);
-  }
-  if (typeof details.estimatedTokensAfter === "number") {
-    parts.push(`Session size ${details.estimatedTokensAfter.toLocaleString()}`);
-  }
+  const parts = compactionCaretParts(details.tokensBefore, details.estimatedTokensAfter);
 
   return (
     <div style={{ marginBottom: 14 }}>

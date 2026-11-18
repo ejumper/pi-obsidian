@@ -8,6 +8,8 @@ import { createRoot, type Root } from "react-dom/client";
 import type { App, Component } from "obsidian";
 import type { AgentMessage } from "../../api/types";
 import type { TranscriptUnit } from "../message-display";
+import type { CompactResultInfo } from "../../state/agent-store";
+import { compactionCaretParts } from "./CompactionDetails";
 import { MessageView } from "./pi-web/MessageView";
 import { ProcessDetailsGroup } from "./pi-web/ProcessDetailsGroup";
 import { setMarkdownContext } from "./pi-web/markdown-context";
@@ -35,6 +37,11 @@ export interface TranscriptData {
   runError?: string | null;
   /** Live compaction: plain "Compacting..." line at the session tail (0.5.5). */
   compacting?: boolean;
+  /** Finished compaction: the caret block that REPLACES the tail line in place
+   *  (0.5.5 spec, landed 0.5.17 — the history caret sits at the projection's
+   *  head, always out of the scrolled-down viewport). pi-web's green composer
+   *  banner parity: lives until the next compaction or session change. */
+  compactResult?: CompactResultInfo | null;
 }
 
 /** pi-web's rule: only the LAST assistant message of a turn shows the
@@ -83,7 +90,7 @@ function computePrevAssistantEntryIds(units: TranscriptUnit[]): Map<TranscriptUn
   return prev;
 }
 
-function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError, compacting }: TranscriptData) {
+function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError, compacting, compactResult }: TranscriptData) {
   const showTs = computeShowTimestamps(units);
   // No dep array: fires after every commit. A plain rAF scroll races React's
   // async commit on big session swaps (the transcript still held the old DOM
@@ -193,14 +200,47 @@ function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, 
           Error: {runError}
         </div>
       )}
-      {compacting && (
+      {compacting ? (
         /* pi-obsidian divergence (0.5.5, user spec): a live compaction shows a
            plain-text "Compacting..." line at the session tail — model-reply
            styling, no bubble — replaced in place by the finished caret block. */
         <div style={{ color: "var(--text-normal)", fontSize: 15, lineHeight: 1.65, marginBottom: 16 }}>
           Compacting...
         </div>
-      )}
+      ) : compactResult ? (
+        /* The finished caret block (0.5.17): the tail line's promised
+           replacement — "Session Compacted · N tokens compacted · Session
+           size M". CompactionDetails chrome, numbers from the live result. */
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            minHeight: 24,
+            marginBottom: 14,
+            color: "var(--text-muted)",
+            fontSize: 12,
+          }}
+          title="Session compacted"
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+          >
+            <polyline points="4 2.5 7.5 6 4 9.5" />
+          </svg>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {compactionCaretParts(compactResult.tokensBefore, compactResult.estimatedTokensAfter).join(" · ")}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

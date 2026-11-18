@@ -39,7 +39,7 @@ export class ChatView extends ItemView {
   /** Open inline rename input on the session title (dblclick rename), while
    *  non-null updateTitle() must leave the title alone. */
   private renameInputEl: HTMLInputElement | null = null;
-  private barStatusEl!: HTMLElement;
+  private barSizeEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private modelChipEl!: HTMLButtonElement;
   private modelChipNameEl!: HTMLElement;
@@ -60,7 +60,6 @@ export class ChatView extends ItemView {
   private attachments!: AttachmentStage;
   private detachKeyboard: (() => void) | null = null;
   private composerEl!: HTMLElement;
-  private barSizeEl!: HTMLElement;
   private queueHostEl!: HTMLElement;
   private geometryTimer: ReturnType<typeof setInterval> | null = null;
   // Scroll-to-bottom bookkeeping: opening/switching a session (or a load
@@ -451,13 +450,14 @@ export class ChatView extends ItemView {
     // box ends one reserve-height early — the blank above the composer.
     root.style.paddingBottom = "0px";
 
-    // Session bar (top): plain title, status, context size.
+    // Session bar (top): plain title + context size. Nothing else earns bar
+    // space (0.5.17, user spec): run/compaction state is communicated by the
+    // composer and the transcript tail — "running" up here was redundant.
     const bar = root.createDiv({ cls: "pi-chat-bar" });
     this.sessionTitleEl = bar.createEl("h1", { cls: "pi-chat-title", text: "pi" });
     // Double-click (fires for mobile double-tap too) → rename the open
     // session inline, file-explorer style.
     this.registerDomEvent(this.sessionTitleEl, "dblclick", () => this.beginTitleRename());
-    this.barStatusEl = bar.createDiv({ cls: "pi-chat-status" });
     this.barSizeEl = bar.createDiv({ cls: "pi-chat-size" });
 
     // Transcript (middle).
@@ -605,11 +605,21 @@ export class ChatView extends ItemView {
   }
 
   /** Refresh the tab button's count from the workspace's root leaves. */
-  /** Refresh the tab button's face: root-leaf count in tabs mode, the pi
-   *  ribbon icon in ribbon-menu mode (settings can flip while views are open). */
+  /** Refresh the tab button's face. The FACE (0.5.17) is its own setting —
+   *  count or icon, independent of the tap action — while the aria label
+   *  always describes the ACTION. Count and label refresh live via the
+   *  layout-change listener; settings flips come through refreshTabButtons. */
   updateTabCount(): void {
     if (!this.tabCountEl) return;
-    if (this.plugin.settings.tabButtonAction === "ribbon") {
+    const ribbonMode = this.plugin.settings.tabButtonAction === "ribbon";
+    if (this.plugin.settings.tabButtonShowCount) {
+      let n = 0;
+      this.app.workspace.iterateRootLeaves(() => {
+        n++;
+      });
+      this.tabCountEl.empty();
+      this.tabCountEl.setText(String(n));
+    } else if (ribbonMode) {
       this.tabCountEl.empty();
       // Mirror the chosen ribbon item's own icon so the button reads as it.
       const item = listRibbonItems().find(
@@ -618,16 +628,19 @@ export class ChatView extends ItemView {
       const svg = item?.el.querySelector("svg");
       if (svg) this.tabCountEl.appendChild(svg.cloneNode(true));
       else setIcon(this.tabCountEl, "zap");
+    } else {
+      this.tabCountEl.empty();
+      setIcon(this.tabCountEl, "square");
+    }
+    if (ribbonMode) {
+      const item = listRibbonItems().find(
+        (it) => it.label === this.plugin.settings.tabButtonRibbonItem
+      );
       const label = item?.label ?? "Ribbon item";
       this.tabBtnEl?.setAttribute("aria-label", label);
       this.tabBtnEl?.setAttribute("title", label);
       return;
     }
-    let n = 0;
-    this.app.workspace.iterateRootLeaves(() => {
-      n++;
-    });
-    this.tabCountEl.setText(String(n));
     this.tabBtnEl?.setAttribute("aria-label", "Tabs");
     this.tabBtnEl?.setAttribute("title", "Tabs");
   }
@@ -927,15 +940,6 @@ export class ChatView extends ItemView {
     const s = this.store.state;
 
     this.updateTitle(s.sessionName);
-    const tools = s.agentPhase?.kind === "running_tools" ? ` · ${s.agentPhase.tools.map((t) => t.name).join(", ")}` : "";
-    // "idle" is the absence of news — only non-idle states earn bar space.
-    this.barStatusEl.setText(
-      s.loading ? "loading…" :
-      s.error ? `error: ${s.error}` :
-      s.live ? "live (read-only)" :
-      s.isCompacting ? "compacting…" :
-      s.agentRunning ? `running${tools}` : ""
-    );
     this.renderContextSize(s.contextUsage);
     this.renderQueue(s.queuedMessages);
     // Working indicator: bouncing line on the composer's top border (styles.css).
@@ -1002,6 +1006,7 @@ export class ChatView extends ItemView {
       sessionId: s.sessionId ?? undefined,
       runError: s.runError,
       compacting: s.isCompacting,
+      compactResult: s.compactResult,
       apiBase: this.plugin.getClient(this.instanceId).baseUrl,
       speak: this.speakController,
       onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },

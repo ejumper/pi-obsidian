@@ -155,9 +155,13 @@ export default class PiPlugin extends Plugin {
     menu.showAtMouseEvent(ev);
   }
 
-  /** Refresh composer tab-button faces (the settings toggle can flip live). */
+  /** Refresh composer tab-button faces (the settings toggle can flip live).
+   *  All open chat views — twin tabs on different machines keep their own
+   *  views but share the setting (0.5.17). */
   refreshTabButtons(): void {
-    this.activeChatView?.updateTabCount();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PI_CHAT)) {
+      (leaf.view as ChatView).updateTabCount();
+    }
   }
 
   /** Open pi IN the current tab (ribbon "Open pi"): replaces the active

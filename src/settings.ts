@@ -53,6 +53,10 @@ export interface PiSettings {
   tabButtonAction: "tabs" | "ribbon";
   /** Label (aria-label) of the ribbon item the button triggers in ribbon mode. */
   tabButtonRibbonItem: string;
+  /** Button FACE (0.5.17): open-tab count (on) vs an icon (off) — independent
+   *  of the tap action. Off shows the tab-overview square in tabs mode, the
+   *  mirrored ribbon item's icon in ribbon mode. */
+  tabButtonShowCount: boolean;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
@@ -67,6 +71,7 @@ export const DEFAULT_SETTINGS: PiSettings = {
   sttUrl: "https://stt.halfab.net",
   tabButtonAction: "tabs",
   tabButtonRibbonItem: "",
+  tabButtonShowCount: true,
 };
 
 export class PiSettingTab extends PluginSettingTab {
@@ -267,6 +272,19 @@ export class PiSettingTab extends PluginSettingTab {
           });
         });
     }
+
+    new Setting(containerEl)
+      .setName("Show tab count")
+      .setDesc(
+        "What the button shows: the number of open tabs (on) or an icon (off). Applies to both tap actions above — off shows the square icon in tab-overview mode, the ribbon item's icon in ribbon mode."
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.tabButtonShowCount).onChange(async (value) => {
+          this.plugin.settings.tabButtonShowCount = value;
+          await this.plugin.saveSettings();
+          this.plugin.refreshTabButtons();
+        })
+      );
 
     new Setting(containerEl).setName("Voice mode").setHeading();
     new Setting(containerEl)

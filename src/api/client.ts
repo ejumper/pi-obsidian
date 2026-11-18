@@ -34,6 +34,10 @@ export interface SessionDetailResponse {
   leafId: string;
   tree: SessionTreeNode[];
   context: SessionContext;
+  /** TUI-parity context size at open (0.5.17): the bridge estimates it from
+   *  the file, so cold sessions show it immediately. tokens: null right after
+   *  a compaction (size unknown until the model speaks again). */
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   live: boolean;
 }
 
@@ -121,7 +125,7 @@ export class PiClient {
       );
     }
     return {
-      ...(obj as SessionsListResponse),
+      ...(obj as unknown as SessionsListResponse),
       stale: res.headers.get("X-Pi-Session-List") === "stale",
     };
   }

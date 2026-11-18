@@ -36,7 +36,7 @@ export class FakeElement {
   dispatchEvent(ev) { (this.listeners[ev?.type] ?? []).forEach((fn) => fn(ev)); return true; }
   append(...nodes) { this.children.push(...nodes); }
   appendChild(node) { this.children.push(node); return node; }
-  empty() { this.children = []; }
+  empty() { this.children = []; this.textContent = ""; }
   addClass(...cs) { cs.forEach((c) => this.classes.add(c)); }
   removeClass(...cs) { cs.forEach((c) => this.classes.delete(c)); }
   toggleClass(c, on) { if (on) this.classes.add(c); else this.classes.delete(c); }
@@ -64,7 +64,7 @@ export class FakeElement {
   createDiv(o = {}) { return this.createEl("div", o); }
   createSpan(o = {}) { return this.createEl("span", o); }
   appendChild(child) { this.children.push(child); return child; }
-  replaceChildren(...nodes) { this.children = [...nodes]; }
+  replaceChildren(...nodes) { this.children = [...nodes]; this.textContent = ""; }
   remove() {}
   get isConnected() { return true; }
   focus() {}
@@ -94,6 +94,7 @@ export class FakeElement {
 globalThis.document = {
   addEventListener() {},
   removeEventListener() {},
+  querySelectorAll: () => [],
   visibilityState: "visible",
   documentElement: new FakeElement("html"),
   body: new FakeElement("body"),

@@ -314,6 +314,7 @@ export class AgentStore {
       queuedMessages: { steering: [], followUp: [] },
       isCompacting: false,
       retryInfo: null,
+      contextUsage: null,
       thinkingLevel: this.defaultThinkingLevel,
     });
 
@@ -332,6 +333,9 @@ export class AgentStore {
         filePath: d.filePath,
         sessionName: d.info?.name,
         firstMessage: d.info?.firstMessage ?? "",
+        // Context size at open (0.5.17): bridge-side TUI-parity estimate from
+        // the file — the bar fills immediately, not after the first run.
+        contextUsage: d.contextUsage ?? null,
       };
       if (d.context.model) patch.currentModel = d.context.model;
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -344,24 +348,35 @@ export class AgentStore {
         return;
       }
 
-      const agentState = await this.client.getState(id);
-      if (this.state.sessionId !== id) return;
-      this.applyRuntimeState(agentState);
+      // Runtime state is best-effort (0.5.17): the session is already open and
+      // the context size comes from the detail estimate — a flaky state fetch
+      // must not fail (or scare) the open. The outer catch is for real open
+      // failures (getSession) only.
+      try {
+        const agentState = await this.client.getState(id);
+        if (this.state.sessionId !== id) return;
+        this.applyRuntimeState(agentState);
 
-      if (agentState.running && agentState.state) {
-        const s = agentState.state;
-        if (s.isStreaming || s.isPromptRunning) {
-          this.update({
-            agentRunning: true,
-            agentPhase: s.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" },
-          });
-          this.connectStream(id, "agent");
-          if (!s.isStreaming && s.isPromptRunning) void this.waitForPromptSettlement(id);
+        if (agentState.running && agentState.state) {
+          const s = agentState.state;
+          if (s.isStreaming || s.isPromptRunning) {
+            this.update({
+              agentRunning: true,
+              agentPhase: s.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" },
+            });
+            this.connectStream(id, "agent");
+            if (!s.isStreaming && s.isPromptRunning) void this.waitForPromptSettlement(id);
+          }
         }
+      } catch {
+        // keep the file-based view; the next run/reconcile refetches state
       }
     } catch (e) {
       if (this.state.sessionId !== id) return;
       this.update({ loading: false, error: String(e) });
+      // The status bar no longer carries error text (0.5.17 — top-right is
+      // context-size only): speak up instead of going silent.
+      this.hooks.onNotice?.(`Couldn't open session: ${String(e)}`, "error");
     }
   }
 
