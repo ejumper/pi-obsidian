@@ -54,6 +54,18 @@
   text-overflow: ellipsis;
 }
 
+.pi-chat-title.pi-title-path {
+  /* Left-ellipsis (0.5.20): new-session titles are cwd PATHS and the
+     informative end is the tail — "…/Programs/Pi-Obsidian", never
+     "/home/ejumps/…". direction: rtl moves the overflow ellipsis to the left
+     edge at ANY bar width (a char cap can't know the width — 0.5.19's bug);
+     text-align keeps the title left-anchored; the LRMs JS wraps around the
+     path pin trailing punctuation (a trailing "/" would bidi-flip to the
+     visual left without them). */
+  direction: rtl;
+  text-align: left;
+}
+
 .pi-chat-size {
   /* Top-right is context-size only (0.5.17) — nothing else shares the slot.
      Typography lives in the session-list-era block further down. */

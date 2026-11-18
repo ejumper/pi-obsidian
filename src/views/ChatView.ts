@@ -26,11 +26,13 @@ const THINKING_LEVELS: ThinkingLevelOption[] = [
   "auto", "off", "minimal", "low", "medium", "high", "xhigh", "max",
 ];
 
-/** New-session titles show the bare cwd path, cut on the LEFT (0.5.19, user
- *  spec): the far-right directory is the informative end —
- *  "…/Programs/Pi-Obsidian" reads better than "/home/ejumps/…". */
-function leftTruncatePath(p: string, max = 48): string {
-  return p.length <= max ? p : `…${p.slice(-max)}`;
+/** New-session titles show the bare cwd path, truncated to the TAIL (0.5.19,
+ *  user spec): the far-right directory is the informative end. Truncation is
+ *  CSS's job (.pi-title-path — left-ellipsis, works at any bar width); LRMs
+ *  (0.5.20) pin trailing punctuation so a trailing "/" can't bidi-flip to
+ *  the left edge under direction: rtl. */
+function pathTitle(p: string): string {
+  return `\u200e${p}\u200e`;
 }
 
 export class ChatView extends ItemView {
@@ -1043,14 +1045,24 @@ export class ChatView extends ItemView {
     // update must not stomp it (the input keeps whatever the user typed).
     if (this.renameInputEl) return;
     const s = this.store.state;
-    const title =
-      s.sessionName ||
-      stripVoiceBlocks(s.firstMessage).slice(0, 60) ||
-      // 0.5.19 (user spec): a new session shows ONLY its cwd path, cut on the
-      // LEFT — the far-right directory is the informative end. "new session ·"
-      // was wasted space.
-      (this.pendingCwd ? leftTruncatePath(this.pendingCwd) : "new session");
-    this.sessionTitleEl.setText(name || title);
+    const first = stripVoiceBlocks(s.firstMessage).slice(0, 60);
+    let text: string;
+    let isPath = false;
+    if (name) text = name;
+    else if (s.sessionName) text = s.sessionName;
+    else if (first) text = first;
+    else if (this.pendingCwd) {
+      // 0.5.19 (user spec): a new session shows ONLY its cwd path — "new
+      // session ·" was wasted space — and the far-right directory must stay
+      // visible, so the cut is CSS left-ellipsis (.pi-title-path), not a
+      // char cap (a cap can't know the bar's width — 0.5.20 fix).
+      text = pathTitle(this.pendingCwd);
+      isPath = true;
+    } else {
+      text = "new session";
+    }
+    this.sessionTitleEl.toggleClass("pi-title-path", isPath);
+    this.sessionTitleEl.setText(text);
   }
 
   /** Title-bar double-click → inline rename of the OPEN session: same input
