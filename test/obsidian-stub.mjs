@@ -31,6 +31,11 @@ export class FakeElement {
   }
   addEventListener(name, fn) { (this.listeners[name] ??= []).push(fn); }
   removeEventListener() {}
+  // Honest dispatch: fire the recorded listeners (draft-restore re-runs
+  // auto-grow through this in the PHASE-16 checks).
+  dispatchEvent(ev) { (this.listeners[ev?.type] ?? []).forEach((fn) => fn(ev)); return true; }
+  append(...nodes) { this.children.push(...nodes); }
+  appendChild(node) { this.children.push(node); return node; }
   empty() { this.children = []; }
   addClass(...cs) { cs.forEach((c) => this.classes.add(c)); }
   removeClass(...cs) { cs.forEach((c) => this.classes.delete(c)); }
@@ -187,7 +192,12 @@ export class Plugin extends Component {
   async saveData() {}
 }
 export class Menu { addItem() { return this; } addSeparator() { return this; } showAtMouseEvent() {} }
-export class Notice { constructor() {} }
+export class Notice {
+  static messages = [];
+  constructor(message, _timeout) {
+    Notice.messages.push(String(message));
+  }
+}
 export class Setting {
   setName() { return this; } setDesc() { return this; } setHeading() { return this; }
   addText() { return this; } addDropdown() { return this; } addToggle() { return this; }

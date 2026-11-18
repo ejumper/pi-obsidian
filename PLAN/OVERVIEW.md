@@ -99,6 +99,10 @@ speaking the pi-web site's existing HTTP+SSE API over Tailscale.
       (pi-voice-chat port): gestures + glow, faster-whisper STT + piper TTS via new
       `stt.halfab.net` / `piper.halfab.net` contracts, read-mode-style invisible mode banners.
       **Ship as 0.5.0.**
+- [ ] **Phase 15 — pi-bridge** *(PHASE-15.md)*: extract pi-web's API half (`lib/` + in-scope
+      routes, 1:1 verbatim) into a pi-native daemon at `~/.pi/agent/bridge/` (rides the
+      `ejumper/pi` sync). **A** prove parity at `/opt/pi-web` → **B** propagate to all pi
+      installs → **C** retire pi-web deployments (archive codebase).
 - [x] **Phase 11 (E) — Multiple pi tabs** *(PHASE-11.md)*: N sessions in N tabs/splits with an
       active-view concept; new "Open pi in new tab" command. **Ship everything as 0.3.2.**
 - [~] **Phase 6 — Hardening & distribution** (2026-11-04/05): phone-validated via BRAT

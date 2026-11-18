@@ -75,6 +75,11 @@ export class ChatView extends ItemView {
   private prevShownForFocus = false;
   /** The machine this tab talks to (Phase 13) — persisted in leaf state. */
   private instanceId = "";
+  /** PHASE-16 restore slot: setState can arrive before or after onOpen; the
+   *  saved session/draft park here until the store and composer both exist. */
+  private restorePending = false;
+  private restoredSessionId: string | null = null;
+  private restoredDraft = "";
   /** Read-aloud backend for the React subtree (module-global, re-pointed per
    *  render pass like api-base) — routes into the voice-mode TTS pipeline. */
   private speakController: SpeakController = {
@@ -104,14 +109,63 @@ export class ChatView extends ItemView {
     // try/catch instead.
   }
 
-  /** Leaf-state persistence: tabs keep their machine across restarts. */
-  getState(): { instanceId: string } {
-    return { instanceId: this.instanceId };
+  /** Leaf-state persistence (PHASE-16): tabs keep their machine, their session
+   *  and their composer draft across restarts and iOS kills. Obsidian serializes
+   *  this at quit and at app-pause — the two flows tabs get lost to. Older saved
+   *  states carry only instanceId and restore exactly as before. */
+  getState(): { instanceId: string; sessionId: string | null; draft: string } {
+    return {
+      instanceId: this.instanceId,
+      sessionId: this.store?.state.sessionId ?? null,
+      draft: (this.inputEl as HTMLTextAreaElement | undefined)?.value ?? "",
+    };
   }
 
-  async setState(state: { instanceId?: string } | null): Promise<void> {
+  async setState(state: { instanceId?: string; sessionId?: string | null; draft?: string } | null): Promise<void> {
     if (state?.instanceId) this.instanceId = state.instanceId;
+    if (state?.sessionId || state?.draft) {
+      this.restorePending = true;
+      this.restoredSessionId = state.sessionId ?? null;
+      this.restoredDraft = state.draft ?? "";
+      void this.maybeRestore();
+    }
     this.refreshLeafTitle();
+  }
+
+  /** PHASE-16: restore this tab's session and draft once the view is ready —
+   *  called from setState and from onOpen, so either ordering works. Policy
+   *  (user, 2026-11-17): a session that can't be opened falls back to a new
+   *  session with a Notice — a deleted session isn't wanted anyway, and the
+   *  notice covers "something was supposed to be here". The draft restores
+   *  either way; typed text is worth keeping even if the session is gone. */
+  private async maybeRestore(): Promise<void> {
+    if (!this.restorePending || !this.store || !this.inputEl) return;
+    this.restorePending = false;
+    const id = this.restoredSessionId;
+    const draft = this.restoredDraft;
+    this.restoredSessionId = null;
+    this.restoredDraft = "";
+    if (draft) {
+      (this.inputEl as HTMLTextAreaElement).value = draft;
+      this.inputEl.dispatchEvent(new Event("input")); // re-run auto-grow
+    }
+    if (!id) return;
+    const name =
+      this.plugin.settings.instances.find((i) => i.id === this.instanceId)?.name ?? "the machine";
+    try {
+      // Verify-first so the fallback can stay silent-new-session + Notice;
+      // the normal open path then loads transcript, stream and run state.
+      await this.plugin.getClient(this.instanceId).getSession(id);
+    } catch (e) {
+      const status = (e as { status?: number } | null)?.status;
+      new Notice(
+        status === 404
+          ? `pi: the session this tab had open is gone on ${name} (deleted?) — opened a new one`
+          : `pi: couldn't reach ${name} to restore this tab's session — opened a new one`
+      );
+      return;
+    }
+    void this.store.openSession(id);
   }
 
   getInstanceId(): string {
@@ -332,6 +386,9 @@ export class ChatView extends ItemView {
         }
       });
       this.render();
+      // PHASE-16: setState may have arrived before this point — run the restore
+      // now that the store and composer exist (no-op when nothing is pending).
+      void this.maybeRestore();
     } catch (e) {
       this.showError(e);
     }
