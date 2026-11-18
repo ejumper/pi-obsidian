@@ -103,4 +103,37 @@ ok(rowCount() === 10 && !hasSentinel(), "small lists render fully (no cap artifa
 
 await panel.close();
 console.log(failures === 0 ? "session-list-check: all green" : `session-list-check: ${failures} FAILURE(S)`);
+if (failures !== 0) process.exit(1);
+
+// 6 — malformed 2xx from a mispointed instance: the REAL client must throw a
+// self-describing error (URL + status + content-type), not a raw TypeError —
+// the phone saw "Spread syntax requires ...iterable" when its laptop URL
+// answered with something that wasn't the bridge (0.5.18).
+{
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith("/api/sessions")) {
+      return new Response("<html>not a bridge</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    return realFetch(url);
+  };
+  let threw = null;
+  try {
+    delete plugin.getClient; // drop the mock — the prototype's real factory answers
+    const client = plugin.getClient(plugin.settings.instances[0].id);
+    await client.listSessionsMeta();
+  } catch (e) {
+    threw = e;
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  ok(threw !== null && /unexpected response from/.test(threw.message),
+    `malformed 200 throws a self-describing error (got: ${threw?.message ?? "no throw"})`);
+  ok(threw !== null && !/Spread syntax/.test(threw.message), "no raw spread TypeError leaks to the notice");
+}
+
+console.log(failures === 0 ? "client checks: all green" : `client checks: ${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -108,7 +108,12 @@ export class PiClient {
 
   /** GET /api/sessions — with the bridge's stale-while-revalidate marker:
    *  stale=true means the list came from cache past its fresh window and a
-   *  background scan is already running; callers re-fetch until stale=false. */
+   *  background scan is already running; callers re-fetch until stale=false.
+   *  The response shape is validated (0.5.18): a 2xx without a sessions array
+   *  used to fall through as a raw "Spread syntax requires ...iterable"
+   *  TypeError in the panel — now it names the URL that answered, so a
+   *  mispointed instance (wrong host/port, HTML from a proxy) is diagnosable
+   *  from the notice alone. */
   async listSessionsMeta(): Promise<SessionsListResponse & { stale: boolean }> {
     const res = await fetch(`${this.baseUrl}/api/sessions`);
     let body: unknown = null;
@@ -122,6 +127,16 @@ export class PiClient {
       throw new PiApiError(
         res.status,
         typeof obj?.error === "string" && obj.error ? obj.error : `HTTP ${res.status}`
+      );
+    }
+    if (obj && typeof obj.error === "string" && obj.error) {
+      throw new PiApiError(res.status, obj.error);
+    }
+    if (!obj || !Array.isArray(obj.sessions)) {
+      const ct = res.headers.get("content-type");
+      throw new PiApiError(
+        res.status,
+        `unexpected response from ${this.baseUrl} (HTTP ${res.status}${ct ? `, ${ct}` : ""}) — is this a pi bridge?`
       );
     }
     return {
