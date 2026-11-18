@@ -214,16 +214,36 @@ const plain = (message) => ({ kind: "message", tag: "plain", key: message, messa
   await new Promise((res) => setTimeout(res, 10));
   const during = v.transcriptEl.textContent ?? "";
   ok(during.includes("Compacting..."), "hitting compact shows the Compacting... tail line (full flow)");
+  // 0.5.21 (user spec): only Stop shows while compacting — the disabled Send
+  // and Queue/steer buttons next to it were noise.
+  ok(v.sendGroupEl.style.display === "none" && v.queueBtnEl.style.display === "none",
+    "during compaction only Stop shows (send + queue hidden)");
+  ok(v.runGroupEl.style.display === "", "the Stop group shows during compaction");
   payload = after; // compaction lands on disk while the RPC runs
   releaseCompact();
   await compactDone;
   await new Promise((res) => setTimeout(res, 80));
+  ok(v.sendGroupEl.style.display === "" && v.queueBtnEl.style.display === "",
+    "after compaction the send/queue buttons return");
   const text = v.transcriptEl.textContent ?? "";
   ok(text.includes("Session size 25,000"),
     "full flow: tail caret replaces the Compacting... line in place (size clause = tail caret's signature)");
   ok(text.includes("Session Compacted · 305,228 tokens compacted"),
     `full flow: caret with tokens compacted (got: ${text.slice(0, 150)})`);
   ok(!text.includes("Compacting..."), "full flow: tail line is gone after compaction");
+  await v.close();
+}
+
+// 5 — run-state guard: a NORMAL run keeps the steer button (only compaction
+// hides it).
+{
+  const v = plugin.__views["pi-chat"]({ app: appStub, updateHeader() {} });
+  await v.open();
+  v.getStore().update({ agentRunning: true });
+  await new Promise((res) => setTimeout(res, 20));
+  ok(v.queueBtnEl.style.display === "", "steer button stays visible during a normal run");
+  ok(v.sendGroupEl.style.display === "none", "send group hides during a run");
+  ok(v.runGroupEl.style.display === "", "Stop group shows during a run");
   await v.close();
 }
 

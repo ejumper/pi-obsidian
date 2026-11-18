@@ -690,11 +690,15 @@ export class ChatView extends ItemView {
     const running = this.store.state.agentRunning;
     // Compaction is run-shaped (0.5.5, user spec): sends gray out — steering
     // would interleave with the summary rewrite — and Stop appears to cancel.
+    // Only Stop is SHOWN while compacting (0.5.21, user spec): disabled Send
+    // and Queue buttons next to it were noise. Steer/follow-up stays visible
+    // during normal runs.
     const compacting = this.store.state.isCompacting;
     this.sendBtnEl.disabled = !hasText || compacting;
     this.queueBtnEl.disabled = !hasText || compacting;
     this.queueBtnEl.classList.toggle("has-text", hasText);
-    this.sendGroupEl.style.display = running ? "none" : "";
+    this.sendGroupEl.style.display = running || compacting ? "none" : "";
+    this.queueBtnEl.style.display = compacting ? "none" : "";
     this.runGroupEl.style.display = running || compacting ? "" : "none";
   }
 
