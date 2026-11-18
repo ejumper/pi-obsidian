@@ -21,6 +21,8 @@ export class PanelView extends ItemView {
   private toggleFoldersEl!: HTMLButtonElement;
   private tree: ServerTree | null = null;
   private sessionsSnapshot: SessionInfo[] = [];
+  /** SWR follow-up timer (0.5.16): re-fetch until a fresh list lands. */
+  private sessionsPollTimer: ReturnType<typeof setTimeout> | null = null;
   private runningSnapshot: string[] = [];
   private runningStream: { close(): void } | null = null;
   private runningStreamInstance: string | null = null;
@@ -77,6 +79,10 @@ export class PanelView extends ItemView {
     this.unsubActive?.();
     this.unsubActive = null;
     this.stopRunningStream();
+    if (this.sessionsPollTimer) {
+      clearTimeout(this.sessionsPollTimer);
+      this.sessionsPollTimer = null;
+    }
   }
 
   // ---------- DOM ----------
@@ -380,10 +386,22 @@ export class PanelView extends ItemView {
         if (this.mode === "folders") void this.ensureTree();
       }
     }
-    this.list.setLoading();
+    // Sessions are per-machine: list them from the focused tab's client.
+    // SWR (0.5.16): a stale-served list self-updates — scheduleSessionsRefresh
+    // re-fetches on a short timer until the bridge's background scan lands.
+    const stale = await this.fetchSessionsNow(id, true);
+    if (stale) this.scheduleSessionsRefresh(id, 0);
+  }
+
+  /** The fetch half of stale-while-revalidate (0.5.16). skeleton=true is the
+   *  panel-open path (loading rows + stream wiring); the SWR follow-up
+   *  re-fetches quietly so the painted list just updates in place. Returns
+   *  whether the served list was stale (bridge header). */
+  private async fetchSessionsNow(id: string, skeleton: boolean): Promise<boolean> {
+    if (skeleton) this.list.setLoading();
     try {
-      // Sessions are per-machine: list them from the focused tab's client.
-      const res = await this.plugin.getClient(id).listSessions();
+      const res = await this.plugin.getClient(id).listSessionsMeta();
+      if (this.focusedInstanceId() !== id) return false; // machine switched mid-flight
       const sessions = [...res.sessions].sort((a, b) =>
         b.modified.localeCompare(a.modified)
       );
@@ -393,14 +411,34 @@ export class PanelView extends ItemView {
       // onto existing rows from here on.
       this.list.setSessions(sessions, [...this.runningIdsUnion()]);
       this.renderRunning();
-      this.watchActiveStore();
-      // The fetch's running set is only a fallback — the live feed owns it
-      // once connected (pi-web's model).
-      this.startRunningStream();
+      if (skeleton) {
+        this.watchActiveStore();
+        // The fetch's running set is only a fallback — the live feed owns it
+        // once connected (pi-web's model).
+        this.startRunningStream();
+      }
+      return res.stale;
     } catch (e) {
-      this.list.setSessions([], []);
-      new Notice(`pi: ${String(e)}`);
+      // Quiet on SWR follow-ups: a network flap must not wipe the painted list.
+      if (skeleton) {
+        this.list.setSessions([], []);
+        new Notice(`pi: ${String(e)}`);
+      }
+      return false;
     }
+  }
+
+  private scheduleSessionsRefresh(id: string, attempt: number): void {
+    const delays = [2000, 5000, 10000, 15000];
+    if (attempt >= delays.length) return;
+    if (this.sessionsPollTimer) clearTimeout(this.sessionsPollTimer);
+    this.sessionsPollTimer = setTimeout(() => {
+      this.sessionsPollTimer = null;
+      if (this.focusedInstanceId() !== id) return; // machine switched
+      void this.fetchSessionsNow(id, false).then((stale) => {
+        if (stale) this.scheduleSessionsRefresh(id, attempt + 1);
+      });
+    }, delays[attempt]);
   }
 
   /** Union of the server's running set and the focused tab's own run state —

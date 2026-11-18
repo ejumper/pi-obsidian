@@ -12,6 +12,10 @@ import type { SessionInfo } from "../../api/types";
 import { stripVoiceBlocks } from "../voice/banner-state";
 
 const TITLE_MAX_CHARS = 70;
+/** Render cap (0.5.16): paint the newest PAGE_SIZE, append PAGE_SIZE more each
+ *  time the scroll reaches the sentinel. 1482 synchronous DOM rows is why the
+ *  panel felt slow on phones — resuming a session is a newest-50 affair. */
+const PAGE_SIZE = 50;
 const SKELETON_ROWS = 5;
 /** Long-press → context menu (the touch twin of `contextmenu`). */
 const LONG_PRESS_MS = 500;
@@ -100,6 +104,11 @@ export class SessionList {
   /** Placeholder state: pulsing skeleton rows while the list loads. */
   /** id → row/title for in-place marker toggling */
   private rows = new Map<string, { row: HTMLElement; title: HTMLElement }>();
+  private allSessions: SessionInfo[] = [];
+  private runningAll = new Set<string>();
+  private visibleCount = PAGE_SIZE;
+  private moreSentinel: HTMLElement | null = null;
+  private moreObserver: IntersectionObserver | null = null;
 
   // ---------- live running markers (0.4.12) ----------
 
@@ -139,12 +148,41 @@ export class SessionList {
   setSessions(sessions: SessionInfo[], runningIds: string[]): void {
     this.el.empty();
     this.rows.clear();
+    this.moreObserver?.disconnect();
+    this.moreObserver = null;
+    this.moreSentinel = null;
+    this.runningAll = new Set(runningIds);
     if (sessions.length === 0) {
+      this.allSessions = [];
+      this.visibleCount = PAGE_SIZE;
       this.el.createDiv({ cls: "pi-session-row pi-session-empty", text: "No sessions" });
       return;
     }
-    const running = new Set(runningIds);
-    for (const session of sessions) {
+    // Keep an expanded list expanded across refreshes — a re-fetch should not
+    // collapse the user's scrolled place; collapse only if the data shrank.
+    this.visibleCount = Math.max(PAGE_SIZE, Math.min(this.visibleCount, sessions.length));
+    this.allSessions = sessions;
+    this.appendRows(0, this.visibleCount);
+    if (this.allSessions.length > this.visibleCount) this.attachMoreSentinel();
+  }
+
+  /** Scroll-to-bottom handler: append the next PAGE_SIZE rows in place (no
+   *  rebuild — the user's scroll position survives). */
+  showMore(): void {
+    if (this.visibleCount >= this.allSessions.length) return;
+    const from = this.visibleCount;
+    this.visibleCount = Math.min(this.visibleCount + PAGE_SIZE, this.allSessions.length);
+    this.appendRows(from, this.visibleCount);
+    if (this.visibleCount >= this.allSessions.length) {
+      this.moreObserver?.disconnect();
+      this.moreObserver = null;
+      this.moreSentinel?.remove();
+      this.moreSentinel = null;
+    }
+  }
+
+  private appendRows(from: number, to: number): void {
+    for (const session of this.allSessions.slice(from, to)) {
       const row = this.el.createDiv({
         cls: "pi-session-row",
         attr: { tabindex: "0", role: "button" },
@@ -155,13 +193,32 @@ export class SessionList {
         text: display,
       });
       this.rows.set(session.id, { row, title });
-      this.applyRunning({ row }, running.has(session.id));
+      this.applyRunning({ row }, this.runningAll.has(session.id));
       row.createDiv({
         cls: "pi-session-meta",
         text: `${session.id.slice(0, 8)} · ${formatModified(session.modified)} · ${session.cwd}`,
       });
       this.attachSessionRow(row, title, session, display);
     }
+  }
+
+  /** Bottom sentinel: entering the viewport (scroll near bottom) appends the
+   *  next page. Tracked in a field so cleanup never depends on DOM queries. */
+  private attachMoreSentinel(): void {
+    this.moreSentinel?.remove();
+    this.moreSentinel = this.el.createDiv({
+      cls: "pi-session-row pi-session-more",
+      text: `scroll for older sessions (${this.allSessions.length - this.visibleCount} more)`,
+    });
+    if (typeof IntersectionObserver === "undefined") return; // headless stub
+    this.moreObserver?.disconnect();
+    this.moreObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((en) => en.isIntersecting)) this.showMore();
+      },
+      { rootMargin: "200px" }
+    );
+    this.moreObserver.observe(this.moreSentinel);
   }
 
   // ---------- row actions (context menu / inline rename / delete) ----------

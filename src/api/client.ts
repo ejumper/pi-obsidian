@@ -102,6 +102,30 @@ export class PiClient {
     return this.request("/api/sessions");
   }
 
+  /** GET /api/sessions — with the bridge's stale-while-revalidate marker:
+   *  stale=true means the list came from cache past its fresh window and a
+   *  background scan is already running; callers re-fetch until stale=false. */
+  async listSessionsMeta(): Promise<SessionsListResponse & { stale: boolean }> {
+    const res = await fetch(`${this.baseUrl}/api/sessions`);
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      // non-JSON body — fall through, handled below
+    }
+    const obj = body as Record<string, unknown> | null;
+    if (!res.ok) {
+      throw new PiApiError(
+        res.status,
+        typeof obj?.error === "string" && obj.error ? obj.error : `HTTP ${res.status}`
+      );
+    }
+    return {
+      ...(obj as SessionsListResponse),
+      stale: res.headers.get("X-Pi-Session-List") === "stale",
+    };
+  }
+
   /** GET /api/sessions/:id */
   getSession(id: string): Promise<SessionDetailResponse> {
     return this.request(
