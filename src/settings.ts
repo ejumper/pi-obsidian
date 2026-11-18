@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting, type DropdownComponent, TextComponent }
 import type PiPlugin from "./main";
 import type { ThinkingLevelOption } from "./state/agent-store";
 import { listRibbonItems } from "./views/ribbon-items";
+import { listCommands } from "./views/commands";
 
 const THINKING_LEVELS: { value: ThinkingLevelOption; label: string }[] = [
   { value: "auto", label: "Auto" },
@@ -22,7 +23,10 @@ export interface PiInstance {
 
   /** Per-machine overrides (0.4.2) — empty/absent falls back to the global settings. */
   pathPrefix?: string;
-  defaultSessionPath?: string;}
+  defaultSessionPath?: string;
+  /** Folder-view tree root (0.5.19) — empty falls back to the vault path prefix. */
+  folderRoot?: string;
+}
 
 export interface PiSettings {
   /** Named pi-web instances — the first entry is the default. */
@@ -48,15 +52,29 @@ export interface PiSettings {
   ttsUrl: string;
   /** Voice-mode STT endpoint (OpenAI-compatible /v1/audio/transcriptions base). */
   sttUrl: string;
-  /** Far-left composer button tap action: tab overview (default) or a ribbon
-   *  menu item (see tabButtonRibbonItem). Long-press keeps the tab menu. */
-  tabButtonAction: "tabs" | "ribbon";
-  /** Label (aria-label) of the ribbon item the button triggers in ribbon mode. */
-  tabButtonRibbonItem: string;
+  /** Far-left composer button actions (0.5.19, user spec): press and
+   *  long-press each trigger a command or a ribbon item — configured
+   *  independently. An empty command id means the built-in default (press:
+   *  tab overview, long-press: new tab), resolved against the command registry
+   *  at run time (ids vary by device/plugin). */
+  tabPressKind: "command" | "ribbon";
+  tabPressCommand: string;
+  tabPressRibbonItem: string;
+  tabLongPressKind: "command" | "ribbon";
+  tabLongPressCommand: string;
+  tabLongPressRibbonItem: string;
   /** Button FACE (0.5.17): open-tab count (on) vs an icon (off) — independent
-   *  of the tap action. Off shows the tab-overview square in tabs mode, the
-   *  mirrored ribbon item's icon in ribbon mode. */
+   *  of the actions. Off shows the tab square in command mode, the mirrored
+   *  ribbon item's icon in ribbon mode. */
   tabButtonShowCount: boolean;
+  /** Folder-view tree root (0.5.19) — decoupled from the vault path prefix
+   *  (which only translates included-file paths). Empty = vault path prefix,
+   *  preserving pre-0.5.19 behavior. */
+  folderRoot: string;
+  /** @deprecated pre-0.5.19 press action ("tabs" | "ribbon") + ribbon label —
+   *  read once by the migration in loadSettings(), then dropped. */
+  tabButtonAction?: "tabs" | "ribbon";
+  tabButtonRibbonItem?: string;
 }
 
 export const DEFAULT_SETTINGS: PiSettings = {
@@ -69,9 +87,14 @@ export const DEFAULT_SETTINGS: PiSettings = {
   includeMentions: false,
   ttsUrl: "https://piper.halfab.net",
   sttUrl: "https://stt.halfab.net",
-  tabButtonAction: "tabs",
-  tabButtonRibbonItem: "",
+  tabPressKind: "command",
+  tabPressCommand: "",
+  tabPressRibbonItem: "",
+  tabLongPressKind: "command",
+  tabLongPressCommand: "",
+  tabLongPressRibbonItem: "",
   tabButtonShowCount: true,
+  folderRoot: "",
 };
 
 export class PiSettingTab extends PluginSettingTab {
@@ -142,6 +165,14 @@ export class PiSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }
         );
+        addFieldRow(
+          this.plugin.settings.folderRoot || "Folder view root (empty = vault path prefix)",
+          instance.folderRoot ?? "",
+          async (value) => {
+            instance.folderRoot = value.trim();
+            await this.plugin.saveSettings();
+          }
+        );
         // Entry #0 is the default — it can be edited but never removed.
         if (index > 0) {
           setting.addExtraButton((button) =>
@@ -170,6 +201,7 @@ export class PiSettingTab extends PluginSettingTab {
               baseUrl: "",
               pathPrefix: "",
               defaultSessionPath: "",
+              folderRoot: "",
             });
             await this.plugin.saveSettings();
             this.display();
@@ -227,56 +259,79 @@ export class PiSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl).setName("Interface").setHeading();
-    new Setting(containerEl)
-      .setName("Tab button action")
-      .setDesc(
-        "The far-left button under the prompt editor. Tap: tab overview (default) or a ribbon menu item. Long-press keeps the tab menu either way."
-      )
-      .addDropdown((dropdown) => {
-        dropdown.addOption("tabs", "Tab overview");
+
+    // Press + long-press actions (0.5.19, user spec): each binds a command or
+    // a ribbon item, and the target dropdown follows the chosen kind — the
+    // command registry in command mode, the ribbon DOM in ribbon mode. An
+    // empty command id is the built-in default (press: tab overview,
+    // long-press: new tab).
+    const renderActionSetting = (which: "press" | "longPress"): void => {
+      const isPress = which === "press";
+      const setting = new Setting(containerEl)
+        .setName(isPress ? "Tab button: press" : "Tab button: long press")
+        .setDesc(
+          isPress
+            ? "What a tap on the far-left button under the prompt editor does."
+            : "What holding the far-left button under the prompt editor does."
+        );
+      setting.addDropdown((dropdown) => {
+        dropdown.addOption("command", "Command");
         dropdown.addOption("ribbon", "Ribbon menu item");
-        dropdown.setValue(this.plugin.settings.tabButtonAction);
+        dropdown.setValue(isPress ? this.plugin.settings.tabPressKind : this.plugin.settings.tabLongPressKind);
         dropdown.onChange(async (value) => {
-          this.plugin.settings.tabButtonAction = value === "ribbon" ? "ribbon" : "tabs";
+          const kind = value === "ribbon" ? "ribbon" : "command";
+          if (isPress) this.plugin.settings.tabPressKind = kind;
+          else this.plugin.settings.tabLongPressKind = kind;
           await this.plugin.saveSettings();
           this.display();
-          this.plugin.refreshTabButtons();
         });
       });
-
-    // Second dropdown only in ribbon mode: pick WHICH ribbon item to trigger.
-    if (this.plugin.settings.tabButtonAction === "ribbon") {
-      const items = listRibbonItems();
-      new Setting(containerEl)
-        .setName("Ribbon item")
-        .setDesc("Ribbon menu item the button triggers.")
-        .addDropdown((dropdown) => {
+      setting.addDropdown((dropdown) => {
+        const ribbonMode = (isPress ? this.plugin.settings.tabPressKind : this.plugin.settings.tabLongPressKind) === "ribbon";
+        if (ribbonMode) {
+          const items = listRibbonItems();
           if (items.length === 0) {
             dropdown.addOption("", "No ribbon items found");
             dropdown.setDisabled(true);
             return;
           }
           for (const it of items) dropdown.addOption(it.label, it.label);
-          // First use: default to the user's "quick access" item when present.
-          if (!this.plugin.settings.tabButtonRibbonItem) {
-            const guess =
-              items.find((it) => /quick\s*access/i.test(it.label))?.label ?? items[0].label;
-            this.plugin.settings.tabButtonRibbonItem = guess;
+          const current = isPress ? this.plugin.settings.tabPressRibbonItem : this.plugin.settings.tabLongPressRibbonItem;
+          if (!current || !items.some((it) => it.label === current)) {
+            // First use: default to the user's "quick access" item when present.
+            const guess = items.find((it) => /quick\s*access/i.test(it.label))?.label ?? items[0].label;
+            if (isPress) this.plugin.settings.tabPressRibbonItem = guess;
+            else this.plugin.settings.tabLongPressRibbonItem = guess;
             void this.plugin.saveSettings();
           }
-          dropdown.setValue(this.plugin.settings.tabButtonRibbonItem);
+          dropdown.setValue(isPress ? this.plugin.settings.tabPressRibbonItem : this.plugin.settings.tabLongPressRibbonItem);
           dropdown.onChange(async (value) => {
-            this.plugin.settings.tabButtonRibbonItem = value;
+            if (isPress) this.plugin.settings.tabPressRibbonItem = value;
+            else this.plugin.settings.tabLongPressRibbonItem = value;
             await this.plugin.saveSettings();
             this.plugin.refreshTabButtons();
           });
+          return;
+        }
+        // Command mode: the full registry plus the built-in default entry.
+        dropdown.addOption("", isPress ? "Default (Tab overview)" : "Default (New tab)");
+        for (const c of listCommands(this.app)) dropdown.addOption(c.id, c.name || c.id);
+        dropdown.setValue(isPress ? this.plugin.settings.tabPressCommand : this.plugin.settings.tabLongPressCommand);
+        dropdown.onChange(async (value) => {
+          if (isPress) this.plugin.settings.tabPressCommand = value;
+          else this.plugin.settings.tabLongPressCommand = value;
+          await this.plugin.saveSettings();
+          this.plugin.refreshTabButtons();
         });
-    }
+      });
+    };
+    renderActionSetting("press");
+    renderActionSetting("longPress");
 
     new Setting(containerEl)
       .setName("Show tab count")
       .setDesc(
-        "What the button shows: the number of open tabs (on) or an icon (off). Applies to both tap actions above — off shows the square icon in tab-overview mode, the ribbon item's icon in ribbon mode."
+        "What the button shows: the number of open tabs (on) or an icon (off). Off shows the tab square in command mode, the ribbon item's icon in ribbon mode."
       )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.tabButtonShowCount).onChange(async (value) => {

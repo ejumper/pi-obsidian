@@ -312,8 +312,9 @@ export class PanelView extends ItemView {
     }
   }
 
-  /** Lazily build the folders tree — always rooted at the vault path prefix
-   *  (confined to it: no navigation above it, per design). */
+  /** Lazily build the folders tree — rooted at the folder-view root setting
+   *  (0.5.19: decoupled from the vault path prefix, which only translates
+   *  included-file paths). Confined to the root: no navigation above it. */
   private async ensureTree(): Promise<void> {
     if (this.tree) {
       this.tree.el.style.display = "";
@@ -326,7 +327,7 @@ export class PanelView extends ItemView {
       // tree on a machine switch and this rebuilds it against the new root.
       const root = await resolveServerPath(
         this.plugin.getClient(this.focusedInstanceId()),
-        this.plugin.getInstancePaths(this.focusedInstanceId()).pathPrefix
+        this.plugin.getInstancePaths(this.focusedInstanceId()).folderRoot
       );
       this.tree = new ServerTree({
         rootPath: root,

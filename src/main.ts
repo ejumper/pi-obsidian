@@ -227,13 +227,19 @@ export default class PiPlugin extends Plugin {
   }
 
   /** Effective paths for a machine: per-instance override, else the global
-   *  fallback (pre-0.4.2 settings keep working untouched). */
-  getInstancePaths(instanceId: string | null | undefined): { pathPrefix: string; defaultSessionPath: string } {
+   *  fallback (pre-0.4.2 settings keep working untouched). The three paths
+   *  are independent knobs (0.5.19, user spec): defaultSessionPath = cwd for
+   *  new sessions, pathPrefix = translates included-file paths (vault root),
+   *  folderRoot = the folder view's tree root (empty falls back to the prefix
+   *  — pre-0.5.19 behavior). */
+  getInstancePaths(instanceId: string | null | undefined): { pathPrefix: string; defaultSessionPath: string; folderRoot: string } {
     const inst =
       this.getInstances().find((i) => i.id === instanceId) ?? this.getDefaultInstance();
+    const pathPrefix = (inst.pathPrefix ?? "").trim() || this.settings.pathPrefix;
     return {
-      pathPrefix: (inst.pathPrefix ?? "").trim() || this.settings.pathPrefix,
+      pathPrefix,
       defaultSessionPath: (inst.defaultSessionPath ?? "").trim() || this.settings.defaultSessionPath,
+      folderRoot: (inst.folderRoot ?? "").trim() || (this.settings.folderRoot ?? "").trim() || pathPrefix,
     };
   }
 
@@ -345,6 +351,18 @@ export default class PiPlugin extends Plugin {
     // Migration: pre-multi-instance settings stored a single `baseUrl`.
     if (raw?.baseUrl && !raw.instances) {
       this.settings.instances = [{ id: "instance-1", name: "Default", baseUrl: raw.baseUrl }];
+    }
+    // Migration (0.5.19): pre-0.5.19 had one press action ("tabs" | "ribbon"
+    // + one ribbon label) and a built-in long-press menu. Map the press
+    // action; long-press falls to its default (New tab command). The old
+    // fields are dropped so a later save never re-triggers this.
+    if (raw?.tabButtonAction !== undefined || raw?.tabButtonRibbonItem !== undefined) {
+      if (raw.tabButtonAction === "ribbon") {
+        this.settings.tabPressKind = "ribbon";
+        this.settings.tabPressRibbonItem = raw.tabButtonRibbonItem ?? "";
+      }
+      delete this.settings.tabButtonAction;
+      delete this.settings.tabButtonRibbonItem;
     }
   }
 

@@ -17,6 +17,7 @@ import { BUILD_ID } from "../main";
 import { VoiceController } from "./voice/voice-controller";
 import { VoiceOverlay } from "./voice/voice-overlay";
 import { invokeRibbonItem, listRibbonItems } from "./ribbon-items";
+import { executeCommand, findNewTabCommand, findTabOverviewCommand, listCommands } from "./commands";
 import { loadVoicePrompts } from "./voice/prompts";
 
 export const VIEW_TYPE_PI_CHAT = "pi-chat";
@@ -24,6 +25,13 @@ export const VIEW_TYPE_PI_CHAT = "pi-chat";
 const THINKING_LEVELS: ThinkingLevelOption[] = [
   "auto", "off", "minimal", "low", "medium", "high", "xhigh", "max",
 ];
+
+/** New-session titles show the bare cwd path, cut on the LEFT (0.5.19, user
+ *  spec): the far-right directory is the informative end —
+ *  "…/Programs/Pi-Obsidian" reads better than "/home/ejumps/…". */
+function leftTruncatePath(p: string, max = 48): string {
+  return p.length <= max ? p : `…${p.slice(-max)}`;
+}
 
 export class ChatView extends ItemView {
   private store!: AgentStore;
@@ -55,8 +63,8 @@ export class ChatView extends ItemView {
   /** Mobile composer tab button's count span (null on desktop — no button). */
   private tabCountEl: HTMLElement | null = null;
   private tabBtnEl: HTMLButtonElement | null = null;
-  /** First openTabOverview() call logs the scan so it can be corrected. */
-  private tabOverviewLogged = false;
+  /** First tab-button action logs the resolved command so it can be corrected. */
+  private tabCommandLogged = false;
   private attachments!: AttachmentStage;
   private detachKeyboard: (() => void) | null = null;
   private composerEl!: HTMLElement;
@@ -544,8 +552,9 @@ export class ChatView extends ItemView {
     return btn;
   }
 
-  /** Mobile composer's far-left button: the current root-leaf (tab) count.
-   *  Tap → tab overview; long-press → new/close-tab menu. */
+  /** Mobile composer's far-left button. Press and long-press each run their
+   *  configured action (0.5.19): a command (registry id, empty = built-in
+   *  default) or a ribbon menu item by label. */
   private buildTabButton(parent: HTMLElement): void {
     const btn = parent.createEl("button", {
       cls: "pi-icon-btn pi-tab-btn",
@@ -562,24 +571,13 @@ export class ChatView extends ItemView {
       pressTimer = null;
     };
 
-    btn.addEventListener("pointerdown", (ev) => {
+    btn.addEventListener("pointerdown", () => {
       longPressed = false; // only suppresses the click right after a long-press
       cancelPress();
       pressTimer = setTimeout(() => {
         pressTimer = null;
         longPressed = true;
-        const menu = new Menu();
-        menu.addItem((item) =>
-          item.setTitle("Open new tab").onClick(() => {
-            this.app.workspace.getLeaf("tab");
-          })
-        );
-        menu.addItem((item) =>
-          item.setTitle("Close current tab").onClick(() => {
-            this.app.workspace.activeLeaf?.detach();
-          })
-        );
-        menu.showAtMouseEvent(ev);
+        this.runTabButtonAction("longPress");
       }, 500);
     });
     btn.addEventListener("pointerup", cancelPress);
@@ -592,26 +590,52 @@ export class ChatView extends ItemView {
         ev.stopPropagation();
         return;
       }
-      // Settings: the button is the tab overview (default) or a ribbon menu
-      // item (long-press keeps the tab menu either way).
-      if (this.plugin.settings.tabButtonAction === "ribbon") {
-        const label = this.plugin.settings.tabButtonRibbonItem;
-        if (label && invokeRibbonItem(label)) return;
-        new Notice("pi: ribbon item not found");
+      this.runTabButtonAction("press");
+    });
+  }
+
+  /** Run the configured press/long-press action (0.5.19): ribbon item by
+   *  label, or a command — an empty id falls back to the built-in default
+   *  (press: tab overview, long-press: new tab). */
+  private runTabButtonAction(which: "press" | "longPress"): void {
+    const s = this.plugin.settings;
+    const kind = which === "press" ? s.tabPressKind : s.tabLongPressKind;
+    if (kind === "ribbon") {
+      const label = which === "press" ? s.tabPressRibbonItem : s.tabLongPressRibbonItem;
+      if (label && invokeRibbonItem(label)) return;
+      new Notice("pi: ribbon item not found");
+      return;
+    }
+    const explicit = which === "press" ? s.tabPressCommand : s.tabLongPressCommand;
+    const id = explicit ||
+      (which === "press" ? findTabOverviewCommand(this.app) : findNewTabCommand(this.app));
+    if (!id) {
+      // Registry-less fallbacks keep the button useful on odd setups.
+      if (which === "longPress") {
+        this.app.workspace.getLeaf("tab");
         return;
       }
-      this.openTabOverview();
-    });
+      new Notice("pi: tab overview command not found");
+      return;
+    }
+    if (!executeCommand(this.app, id)) {
+      new Notice("pi: command failed");
+      return;
+    }
+    if (!this.tabCommandLogged) {
+      this.tabCommandLogged = true;
+      console.log(`pi: tab button ${which} -> ${id}`);
+    }
   }
 
   /** Refresh the tab button's count from the workspace's root leaves. */
   /** Refresh the tab button's face. The FACE (0.5.17) is its own setting —
-   *  count or icon, independent of the tap action — while the aria label
-   *  always describes the ACTION. Count and label refresh live via the
+   *  count or icon, independent of the actions — while the aria label
+   *  describes the PRESS action. Count and label refresh live via the
    *  layout-change listener; settings flips come through refreshTabButtons. */
   updateTabCount(): void {
     if (!this.tabCountEl) return;
-    const ribbonMode = this.plugin.settings.tabButtonAction === "ribbon";
+    const ribbonPress = this.plugin.settings.tabPressKind === "ribbon";
     if (this.plugin.settings.tabButtonShowCount) {
       let n = 0;
       this.app.workspace.iterateRootLeaves(() => {
@@ -619,11 +643,11 @@ export class ChatView extends ItemView {
       });
       this.tabCountEl.empty();
       this.tabCountEl.setText(String(n));
-    } else if (ribbonMode) {
+    } else if (ribbonPress) {
       this.tabCountEl.empty();
-      // Mirror the chosen ribbon item's own icon so the button reads as it.
+      // Mirror the press ribbon item's own icon so the button reads as it.
       const item = listRibbonItems().find(
-        (it) => it.label === this.plugin.settings.tabButtonRibbonItem
+        (it) => it.label === this.plugin.settings.tabPressRibbonItem
       );
       const svg = item?.el.querySelector("svg");
       if (svg) this.tabCountEl.appendChild(svg.cloneNode(true));
@@ -632,54 +656,21 @@ export class ChatView extends ItemView {
       this.tabCountEl.empty();
       setIcon(this.tabCountEl, "square");
     }
-    if (ribbonMode) {
-      const item = listRibbonItems().find(
-        (it) => it.label === this.plugin.settings.tabButtonRibbonItem
-      );
-      const label = item?.label ?? "Ribbon item";
-      this.tabBtnEl?.setAttribute("aria-label", label);
-      this.tabBtnEl?.setAttribute("title", label);
-      return;
-    }
-    this.tabBtnEl?.setAttribute("aria-label", "Tabs");
-    this.tabBtnEl?.setAttribute("title", "Tabs");
+    const label = this.tabButtonLabel();
+    this.tabBtnEl?.setAttribute("aria-label", label);
+    this.tabBtnEl?.setAttribute("title", label);
   }
 
-  /** Tap → open the tab overview. The command id depends on which plugin
-   *  provides it (unknown at build time), so rank the registry: "tab overview"
-   *  / "show-tab-overview" first, then id-"tab" + name-"overview", then any
-   *  id containing "tab-overview". First call logs the match + candidates. */
-  private openTabOverview(): void {
-    type CommandInfo = { id: string; name: string };
-    let commands: CommandInfo[] = [];
-    try {
-      commands =
-        ((this.app as any).commands?.listCommands?.() as CommandInfo[] | undefined) ?? [];
-    } catch {
-      commands = [];
+  /** Label = the press action's name (what a tap does). */
+  private tabButtonLabel(): string {
+    const s = this.plugin.settings;
+    if (s.tabPressKind === "ribbon") {
+      return listRibbonItems().find((it) => it.label === s.tabPressRibbonItem)?.label ?? "Ribbon item";
     }
-    const has = (s: string, needle: string): boolean => s.toLowerCase().includes(needle);
-    const best =
-      commands.find(
-        (c) =>
-          has(c.id, "tab overview") || has(c.name, "tab overview") ||
-          has(c.id, "show-tab-overview") || has(c.name, "show-tab-overview")
-      ) ??
-      commands.find((c) => has(c.id, "tab") && has(c.name, "overview")) ??
-      commands.find((c) => has(c.id, "tab-overview"));
-
-    if (!this.tabOverviewLogged) {
-      this.tabOverviewLogged = true;
-      const tabish = commands.filter((c) => has(c.id, "tab") || has(c.name, "tab"));
-      console.log("pi: tab overview match:", best?.id ?? "(none)");
-      console.log("pi: tab-ish commands:", tabish);
+    if (s.tabPressCommand) {
+      return listCommands(this.app).find((c) => c.id === s.tabPressCommand)?.name ?? "Command";
     }
-
-    if (!best) {
-      new Notice("pi: tab overview command not found");
-      return;
-    }
-    (this.app as any).commands.executeCommandById(best.id);
+    return "Tabs";
   }
 
   /** Auto-grow editor: 1 row → grows with content → CSS caps it, then scrolls. */
@@ -1055,7 +1046,10 @@ export class ChatView extends ItemView {
     const title =
       s.sessionName ||
       stripVoiceBlocks(s.firstMessage).slice(0, 60) ||
-      (this.pendingCwd ? `new session · ${this.pendingCwd}` : "new session");
+      // 0.5.19 (user spec): a new session shows ONLY its cwd path, cut on the
+      // LEFT — the far-right directory is the informative end. "new session ·"
+      // was wasted space.
+      (this.pendingCwd ? leftTruncatePath(this.pendingCwd) : "new session");
     this.sessionTitleEl.setText(name || title);
   }
 
