@@ -247,9 +247,17 @@ export class ChatView extends ItemView {
 
   private async initVoice(): Promise<void> {
     try {
+      // 0.5.25 seed fix: the dir must be VAULT-RELATIVE for the adapter —
+      // manifest.dir is an absolute/filesystem path, so the seed read+write
+      // silently failed on every device and prompts/ never appeared (voice
+      // mode ran on the compiled fallback the whole time). configDir is the
+      // standard vault-relative base (".obsidian").
+      const pluginDir = this.app.vault.configDir
+        ? `${this.app.vault.configDir}/plugins/${this.plugin.manifest?.id ?? "pi-obsidian"}`
+        : this.plugin.manifest?.dir;
       const prompts = await loadVoicePrompts(
         this.app.vault.adapter,
-        this.plugin.manifest?.dir,
+        pluginDir,
       );
       this.voiceController = new VoiceController({
         store: this.store,
