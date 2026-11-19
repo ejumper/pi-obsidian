@@ -69,7 +69,7 @@ const visible = (v) => v.loaderEl.style.display !== "none";
   store.update({ loading: true, messages: [] });
   await new Promise((r) => setTimeout(r, 20));
   ok(visible(v), "loader shows while loading");
-  store.update({ loading: false, messages: [{ id: "m1", role: "assistant", content: "hi", display: true }] });
+  store.update({ loading: false, messages: [{ id: "m1", role: "assistant", content: [{ type: "text", text: "hi" }], display: true }] });
   await new Promise((r) => setTimeout(r, 20));
   ok(!visible(v), "loader hides when the session settles");
   // Toggle back on (a second open) — change-on-edge logic must not stick.
@@ -79,7 +79,23 @@ const visible = (v) => v.loaderEl.style.display !== "none";
   await v.close();
 }
 
-// 3 — a view opened onto an ALREADY-loading store shows the loader immediately
+// 3 — the loader must live OUTSIDE the React host (0.5.23 root cause):
+// react-dom's createRoot() clears its container's existing children on first
+// mount — a loader inside the host gets silently deleted and its display
+// toggles a detached node ("never shows"). Pin the sibling structure.
+{
+  const v = makeView();
+  await v.open();
+  ok(v.transcriptHostEl && v.transcriptHostEl !== v.transcriptEl,
+    "React mounts into its own host, not the transcript root");
+  ok(v.transcriptEl.children.includes(v.transcriptHostEl) && v.transcriptEl.children.includes(v.loaderEl),
+    "host and loader are siblings under the transcript");
+  ok(v.transcriptHostEl.children.indexOf(v.loaderEl) === -1,
+    "loader is NOT inside the React container (createRoot clears it)");
+  await v.close();
+}
+
+// 4 — a view opened onto an ALREADY-loading store shows the loader immediately
 // (initial display comes from current state, not a stale "hidden").
 {
   plugin.__storeSeed = { loading: true }; // if the factory honors seeds; harmless otherwise
@@ -93,7 +109,7 @@ const visible = (v) => v.loaderEl.style.display !== "none";
   await v.close();
 }
 
-// 4 — styles.css: the centered full-height rule + the three cumulative dot
+// 5 — styles.css: the centered full-height rule + the three cumulative dot
 // keyframes (appear one at a time, all clear together).
 {
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");

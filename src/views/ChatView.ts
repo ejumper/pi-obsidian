@@ -60,6 +60,7 @@ export class ChatView extends ItemView {
   private sendGroupEl!: HTMLElement;
   private runGroupEl!: HTMLElement;
   private transcriptEl!: HTMLElement;
+  private transcriptHostEl!: HTMLElement;
   private loaderEl!: HTMLElement;
 
   private pendingCwd: string | null = null;
@@ -371,7 +372,7 @@ export class ChatView extends ItemView {
             `${Math.max(160, Math.round(composerTop - rect.top - 6))}px`;
         }
       }, 250);
-      this.transcript = new TranscriptRenderer(this.transcriptEl, {
+      this.transcript = new TranscriptRenderer(this.transcriptHostEl, {
         app: this.app,
         sourcePath: "",
         component: this,
@@ -471,8 +472,13 @@ export class ChatView extends ItemView {
     this.registerDomEvent(this.sessionTitleEl, "dblclick", () => this.beginTitleRename());
     this.barSizeEl = bar.createDiv({ cls: "pi-chat-size" });
 
-    // Transcript (middle).
+    // Transcript (middle). React mounts into its own HOST (0.5.23): react-dom's
+    // createRoot() CLEARS its container's existing children on first mount —
+    // mounting into transcriptEl directly used to silently delete the session
+    // loader created alongside it (the "loader never shows" bug). Everything
+    // that is not React-rendered must live OUTSIDE the host, as a sibling.
     this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
+    this.transcriptHostEl = this.transcriptEl.createDiv({ cls: "pi-transcript-host" });
     // Center-of-screen session loader (0.5.22, user spec): the top-right
     // "loading" status was removed in 0.5.17, so an opening session read as
     // a blank screen. openSession clears messages, so the transcript is empty

@@ -247,5 +247,25 @@ const plain = (message) => ({ kind: "message", tag: "plain", key: message, messa
   await v.close();
 }
 
+// 6 — loader survives the REAL React mount (0.5.23 root cause): react-dom's
+// createRoot clears its container's existing children, and this harness is the
+// only one where createRoot actually mounts (the plain-stub renders no-op) —
+// so this is the check that would have caught "loader never shows".
+{
+  const v = plugin.__views["pi-chat"]({ app: appStub, updateHeader() {} });
+  await v.open();
+  const store = v.getStore();
+  store.update({ loading: true, messages: [] });
+  await new Promise((res) => setTimeout(res, 40)); // let React mount into the host
+  ok(v.loaderEl.parentElement === v.transcriptEl,
+    "loader still parented to the transcript after react-dom mounted (not cleared)");
+  ok(v.loaderEl.style.display !== "none", "loader visible while loading after mount");
+  store.update({ loading: false, messages: [{ id: "m1", role: "assistant", content: [{ type: "text", text: "hi" }], display: true }] });
+  await new Promise((res) => setTimeout(res, 40));
+  ok(v.loaderEl.parentElement === v.transcriptEl && v.loaderEl.style.display === "none",
+    "loader still parented and hidden once the session settles");
+  await v.close();
+}
+
 console.log(failures === 0 ? "compaction-caret-check: all green" : `compaction-caret-check: ${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
