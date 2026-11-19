@@ -183,6 +183,23 @@ export class AttachmentStage {
   }
 
   /** Drop everything staged (releases previews). */
+  /** Re-stage images from a failed send (0.5.24 draft-return): chips rebuilt
+   *  straight from the base64 payloads prepareSend() handed out — no File
+   *  round-trip, so nothing depends on the original picker state. */
+  restageImages(images: AttachedImageInput[]): void {
+    for (const img of images) {
+      this.items.push({
+        id: `restored-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: `image-${this.items.length + 1}`,
+        kind: "image",
+        previewUrl: `data:${img.mimeType};base64,${img.data}`,
+        base64: img.data,
+        mimeType: img.mimeType,
+      });
+    }
+    if (images.length > 0) this.notify();
+  }
+
   clear(): void {
     if (this.items.length === 0) return;
     for (const item of this.items) releasePreview(item);

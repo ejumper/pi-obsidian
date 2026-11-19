@@ -109,6 +109,10 @@ export interface AgentStoreHooks {
   onSessionRenamed?: (sessionId: string, name: string | undefined) => void;
   /** extension `set_editor_text` — insert into the composer. */
   onInsertText?: (text: string) => void;
+  /** 0.5.24 draft-return: a message that never reached the model comes back
+   *  to the composer (HTTP failure is handled synchronously via the boolean
+   *  return; this covers the async prompt_error case). */
+  onSendFailed?: (text: string, images?: AttachedImageInput[]) => void;
   onAgentEnd?: () => void;
   /** Plugin-level default thinking level — used when a session carries no stored override. */
   defaultThinkingLevel?: ThinkingLevelOption;
@@ -199,6 +203,9 @@ export class AgentStore {
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
   private runId = 0;
   private optimisticUserMessageKey: string | null = null;
+  /** 0.5.24 draft-return: the prompt awaiting model acceptance — restored to
+   *  the composer if it errors without ever landing in the session. */
+  private pendingPrompt: { text: string; images?: AttachedImageInput[] } | null = null;
   private ensuringSession: Promise<string | null> | null = null;
   private seenEntryIds = new Set<string>();
   private destroyed = false;
@@ -301,6 +308,7 @@ export class AgentStore {
     this.closeStream();
     this.runId++;
     this.optimisticUserMessageKey = null;
+    this.pendingPrompt = null;
     this.update({
       sessionId: id,
       loading: true,
@@ -385,6 +393,7 @@ export class AgentStore {
     this.closeStream();
     this.runId++;
     this.optimisticUserMessageKey = null;
+    this.pendingPrompt = null;
     this.update({
       sessionId: null,
       loading: false,
@@ -424,11 +433,12 @@ export class AgentStore {
     message: string,
     images?: AttachedImageInput[],
     opts?: { model?: { provider: string; modelId: string }; thinkingLevel?: string }
-  ): Promise<void> {
+  ): Promise<boolean> {
     const trimmed = message.trim();
-    if (!trimmed && !images?.length) return;
+    if (!trimmed && !images?.length) return true;
 
     const userMsg = this.appendOptimisticUser(trimmed, images);
+    this.pendingPrompt = { text: trimmed, images };
     const runId = ++this.runId;
     this.update({ agentRunning: true, agentPhase: { kind: "waiting_model" }, error: null });
 
@@ -446,24 +456,29 @@ export class AgentStore {
         created: new Date().toISOString(), modified: new Date().toISOString(),
         messageCount: 1, firstMessage: trimmed || "(no messages)",
       });
+      return true;
     } catch (e) {
       this.rollbackOptimisticUser(userMsg);
+      this.pendingPrompt = null;
       if (runId === this.runId) {
         this.update({ agentRunning: false, agentPhase: null, streamingMessage: null });
       }
       this.hooks.onNotice?.(`Message not sent — ${e instanceof Error ? e.message : String(e)}`, "error");
+      return false;
     }
   }
 
-  /** Send a prompt on the open session (refuses while running — use steer/followUp). */
-  async sendPrompt(message: string, images?: AttachedImageInput[]): Promise<void> {
+  /** Send a prompt on the open session (refuses while running — use steer/followUp).
+   *  Returns false when the message did NOT go out (caller restores the draft). */
+  async sendPrompt(message: string, images?: AttachedImageInput[]): Promise<boolean> {
     const sid = this.state.sessionId;
     const trimmed = message.trim();
-    if (!sid || this.state.live) return;
-    if (!trimmed && !images?.length) return;
-    if (this.state.agentRunning) return;
+    if (!sid || this.state.live) return false;
+    if (!trimmed && !images?.length) return true;
+    if (this.state.agentRunning) return false;
 
     const userMsg = this.appendOptimisticUser(trimmed, images);
+    this.pendingPrompt = { text: trimmed, images };
     ++this.runId;
     this.update({ agentRunning: true, agentPhase: { kind: "waiting_model" }, runError: null });
 
@@ -474,28 +489,31 @@ export class AgentStore {
         message: trimmed,
         ...(images?.length ? { images } : {}),
       });
+      return true;
     } catch (e) {
       this.rollbackOptimisticUser(userMsg);
+      this.pendingPrompt = null;
       this.update({ agentRunning: false, agentPhase: null, streamingMessage: null, runError: e instanceof Error ? e.message : String(e) });
       this.hooks.onNotice?.(`Message not sent — ${e instanceof Error ? e.message : String(e)}`, "error");
+      return false;
     }
   }
 
   /** Steer the running agent. No optimistic bubble — the delivery echo renders. */
-  async steer(message: string, images?: AttachedImageInput[]): Promise<void> {
-    await this.sendSimple({ type: "steer", message, ...(images?.length ? { images } : {}) },
+  async steer(message: string, images?: AttachedImageInput[]): Promise<boolean> {
+    return this.sendSimple({ type: "steer", message, ...(images?.length ? { images } : {}) },
       "Steer message not sent");
   }
 
   /** Queue a follow-up for after the current run. */
-  async followUp(message: string, images?: AttachedImageInput[]): Promise<void> {
-    await this.sendSimple({ type: "follow_up", message, ...(images?.length ? { images } : {}) },
+  async followUp(message: string, images?: AttachedImageInput[]): Promise<boolean> {
+    return this.sendSimple({ type: "follow_up", message, ...(images?.length ? { images } : {}) },
       "Follow-up not queued");
   }
 
   /** Queue a prompt with streaming behavior (steer|followUp semantics server-side). */
-  async queuePrompt(message: string, behavior: "steer" | "followUp"): Promise<void> {
-    await this.sendSimple({ type: "prompt", message, streamingBehavior: behavior },
+  async queuePrompt(message: string, behavior: "steer" | "followUp"): Promise<boolean> {
+    return this.sendSimple({ type: "prompt", message, streamingBehavior: behavior },
       "Message not queued");
   }
 
@@ -671,18 +689,37 @@ export class AgentStore {
 
   private async sendSimple(
     cmd: AgentCommand, errorPrefix: string, notify = true
-  ): Promise<void> {
+  ): Promise<boolean> {
     const sid = this.state.sessionId;
-    if (!sid) return;
+    if (!sid) return false;
     try {
       await this.client.sendCommand(sid, cmd);
+      return true;
     } catch (e) {
       if (notify) {
         this.hooks.onNotice?.(`${errorPrefix} — ${e instanceof Error ? e.message : String(e)}`, "error");
       } else {
         console.error(`${errorPrefix}:`, e);
       }
+      return false;
     }
+  }
+
+  /** Whether `text` survived into the session (some message carries it). */
+  private messageTextPresent(text: string): boolean {
+    const needle = text.trim();
+    if (!needle) return false;
+    for (const m of this.state.messages) {
+      const content = (m as { content?: unknown }).content;
+      if (typeof content === "string" && content.includes(needle)) return true;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          const t = (block as { text?: unknown }).text;
+          if (typeof t === "string" && t.includes(needle)) return true;
+        }
+      }
+    }
+    return false;
   }
 
   private appendOptimisticUser(message: string, images?: AttachedImageInput[]): AgentMessage {
@@ -831,6 +868,8 @@ export class AgentStore {
       }
 
       case "prompt_done":
+        // Delivery confirmed — nothing to give back to the composer.
+        this.pendingPrompt = null;
         if (!this.state.agentRunning) break;
         this.finishRun();
         void this.refreshFromDisk();
@@ -844,7 +883,18 @@ export class AgentStore {
         const msg = (ev as { errorMessage?: string }).errorMessage ?? "Command failed";
         if (this.state.agentRunning) this.finishRun();
         this.update({ runError: msg });
-        void this.refreshFromDisk();
+        // Draft-return (0.5.24, user spec): if the failed prompt never landed
+        // in the session (pi can reject before persisting the user entry), give
+        // the message back to the composer instead of losing it with the
+        // optimistic bubble. The check runs AFTER the disk refresh — that
+        // refresh is what removes the optimistic copy from state.messages.
+        const pending = this.pendingPrompt;
+        this.pendingPrompt = null;
+        void this.refreshFromDisk().then(() => {
+          if (pending && !this.messageTextPresent(pending.text)) {
+            this.hooks.onSendFailed?.(pending.text, pending.images);
+          }
+        });
         void this.refreshAgentState();
         break;
       }

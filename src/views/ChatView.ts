@@ -79,6 +79,10 @@ export class ChatView extends ItemView {
   // scroll position wasn't "near bottom". Prefixed — see the note above.
   private prevSessionIdForScroll: string | null = null;
   private prevLoadingForScroll = false;
+  /** 0.5.24 draft-return: the next send carries a restored draft — its
+   *  mentions/attachment lines are already baked in, so the prepend is
+   *  skipped once to keep them from doubling. */
+  private draftFromRestore = false;
   /** Scroll-to-bottom intent window (0.4.6): the old one-shot flag burned
    *  on the first, still-empty render of a session load. While the window is
    *  open every commit and a set of timed passes re-scroll to the end. */
@@ -310,6 +314,9 @@ export class ChatView extends ItemView {
         this.growEditor();
       },
       onSessionRenamed: (_id, name) => this.updateTitle(name),
+      // 0.5.24 draft-return: the async failure case (prompt_error where the
+      // message never landed in the session) — put it back in the composer.
+      onSendFailed: (text, images) => this.restoreDraft(text, images),
       onSessionCreated: (info) => {
         this.plugin.settings.lastCwd = info.cwd;
         void this.plugin.saveSettings();
@@ -743,6 +750,9 @@ export class ChatView extends ItemView {
   private async sendCurrent(): Promise<void> {
     const text = this.inputEl.value.trim();
     if (!text) return;
+    // 0.5.24 draft-return: keep the verbatim editor content — on a failed
+    // send it goes back in exactly as typed.
+    const rawDraft = this.inputEl.value;
     const s = this.store.state;
 
     // pi-web parity: never queue mid-run with staged attachments.
@@ -773,12 +783,22 @@ export class ChatView extends ItemView {
         }
       }
       if (cwd) {
-        const finalText = withFileLines(await this.prependMentions(text, cwd));
+        const skipMentions = this.draftFromRestore;
+        this.draftFromRestore = false;
+        const finalText = withFileLines(skipMentions ? text : await this.prependMentions(text, cwd));
         this.pendingCwd = null;
         this.inputEl.value = "";
         this.growEditor();
         void this.store.startNewSession(cwd, finalText, images, {
           model: this.plugin.settings.defaultModel ?? undefined,
+        }).then((ok) => {
+          if (!ok) {
+            // Draft-return: restore the text AND the new-session cwd (the
+            // title comes back with the path too).
+            this.pendingCwd = cwd;
+            this.updateTitle(undefined);
+            this.restoreDraft(rawDraft, images);
+          }
         });
         return;
       }
@@ -786,14 +806,40 @@ export class ChatView extends ItemView {
       return;
     }
 
-    const finalText = withFileLines(await this.prependMentions(text, s.cwd));
+    const skipMentions = this.draftFromRestore;
+    this.draftFromRestore = false;
+    const finalText = withFileLines(skipMentions ? text : await this.prependMentions(text, s.cwd));
     const outgoing = this.voiceController?.wrapTyped(finalText) ?? finalText;
     this.inputEl.value = "";
     this.growEditor();
+    const restoreOnFail = (ok: boolean) => {
+      if (!ok) this.restoreDraft(rawDraft, images);
+    };
     if (s.agentRunning) {
-      void this.store.steer(outgoing, images); // Queue button / Enter while running = steer
+      void this.store.steer(outgoing, images).then(restoreOnFail); // Queue button / Enter while running = steer
     } else {
-      void this.store.sendPrompt(outgoing, images);
+      void this.store.sendPrompt(outgoing, images).then(restoreOnFail);
+    }
+  }
+
+  /** 0.5.24 (user spec): a message that never reached the model RETURNS to
+   *  the composer — a failed send must never cost retyping. Never clobbers
+   *  new typing (the draft is prepended to it); images are re-staged
+   *  best-effort from the payloads prepareSend() handed out. */
+  private restoreDraft(text: string, images?: AttachedImageInput[]): void {
+    const current = this.inputEl.value;
+    this.inputEl.value = current.trim() ? `${text}\n${current}` : text;
+    // Mentions/attachment lines are baked into the restored text — skip the
+    // prepend on the next send so nothing doubles. (If the restored draft is
+    // deleted and retyped fresh, one send misses its mention prefix — a
+    // harmless trade for never doubling them.)
+    this.draftFromRestore = true;
+    this.growEditor();
+    this.inputEl.focus();
+    try {
+      this.attachments.restageImages(images ?? []);
+    } catch {
+      // chips are a nicety — the text is the irreplaceable part
     }
   }
 
