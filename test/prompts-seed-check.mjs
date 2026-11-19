@@ -26,17 +26,27 @@ const ok = (cond, label) => {
 const bundle = require("../dist/main.js");
 const { loadVoicePrompts, parsePromptFile } = bundle;
 
-// Fake adapter recording every path it is asked about.
+// Fake adapter recording every path it is asked about — STRICT filesystem:
+// write fails unless the parent dir was mkdir'd first (adapter.write does not
+// create parent directories — the 0.5.25→0.5.26 lesson).
 const reads = [];
 const writes = [];
+const dirs = [];
 let files = new Map();
+const made = new Set();
 const adapter = {
   async read(path) {
     reads.push(path);
     if (files.has(path)) return files.get(path);
     throw new Error("file not found");
   },
+  async mkdir(path) {
+    dirs.push(path);
+    made.add(path);
+  },
   async write(path, data) {
+    const dir = path.slice(0, path.lastIndexOf("/"));
+    if (!made.has(dir)) throw new Error("ENOENT: no such directory (mkdir first)");
     writes.push(path);
     files.set(path, data);
   },
@@ -59,6 +69,8 @@ be terse
   ok(reads[0] === `${dir}/prompts/voice-enter.md`, `enter probed vault-relatively (got ${reads[0]})`);
   ok(writes.length === 2, `both files seeded on miss (got ${writes.length})`);
   ok(writes[0] === `${dir}/prompts/voice-enter.md`, "seed write uses the same vault-relative path");
+  ok(dirs.length === 2 && dirs.every((d) => d === `${dir}/prompts`),
+    "prompts dir created before each write (write does not mkdir)");
   const again = await loadVoicePrompts(adapter, dir);
   ok(again.enter.includes("<voice-mode>"), "seeded file wins on the next load");
   ok(again.enter.length > 0 && !again.enter.includes("<!--"),

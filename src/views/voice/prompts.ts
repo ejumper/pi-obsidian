@@ -8,12 +8,16 @@
 import enterFallback from "./prompts/voice-enter.md";
 import exitFallback from "./prompts/voice-exit.md";
 
-/** Minimal slice of Obsidian's DataAdapter this needs — keeps the loader testable. */
+/** Minimal slice of Obsidian's DataAdapter this needs — keeps the loader testable.
+ *  mkdir is required for seeding: adapter.write does NOT create parent
+ *  directories (0.5.25 lesson — the seed silently failed forever without it). */
 export interface VoicePromptReader {
   read(path: string): Promise<string>;
   /** Optional: seeds missing prompt files on first run (BRAT installs only
    *  main.js/manifest/styles — the .md files bootstrap themselves). */
   write?(path: string, data: string): Promise<void>;
+  /** Creates a directory; "already exists" errors are ignored by the caller. */
+  mkdir?(path: string): Promise<void>;
 }
 
 export interface VoicePrompts {
@@ -47,9 +51,16 @@ export async function loadVoicePrompts(
         // Missing (BRAT installs only main.js/manifest/styles) — seed it from the
         // compiled copy so the file exists and is tunable on this device.
         try {
-          await reader.write?.(path, raw);
+          await reader.mkdir?.(`${pluginDir}/prompts`);
         } catch {
-          // seeding is best-effort — the compiled copy still serves
+          // "already exists" and friends — the write below is the real test
+        }
+        try {
+          await reader.write?.(path, raw);
+          console.log(`[pi-obsidian] seeded voice prompt: ${path}`);
+        } catch (e) {
+          // visible this time — a silently-missing tunable file cost us 0.5.25
+          console.warn(`[pi-obsidian] voice prompt seed failed (${path}):`, e);
         }
       }
     }
