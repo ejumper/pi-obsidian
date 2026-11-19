@@ -60,6 +60,7 @@ export class ChatView extends ItemView {
   private sendGroupEl!: HTMLElement;
   private runGroupEl!: HTMLElement;
   private transcriptEl!: HTMLElement;
+  private loaderEl!: HTMLElement;
 
   private pendingCwd: string | null = null;
   /** Mobile composer tab button's count span (null on desktop — no button). */
@@ -472,6 +473,16 @@ export class ChatView extends ItemView {
 
     // Transcript (middle).
     this.transcriptEl = root.createDiv({ cls: "pi-chat-transcript" });
+    // Center-of-screen session loader (0.5.22, user spec): the top-right
+    // "loading" status was removed in 0.5.17, so an opening session read as
+    // a blank screen. openSession clears messages, so the transcript is empty
+    // while loading and this full-height centered child sits mid-screen — no
+    // fixed layer, no body-attach quirk.
+    this.loaderEl = this.transcriptEl.createDiv({ cls: "pi-session-loader" });
+    this.loaderEl.createSpan({ text: "loading" });
+    const loaderDots = this.loaderEl.createSpan({ cls: "pi-loader-dots" });
+    for (let i = 0; i < 3; i++) loaderDots.createSpan({ text: "." });
+    this.loaderEl.style.display = this.store.state.loading ? "" : "none";
 
     // Composer block: body-attached + fixed (screen geometry — see styles.css).
     const composer = document.body.createDiv({ cls: "pi-chat-composer" });
@@ -955,6 +966,11 @@ export class ChatView extends ItemView {
     // auto-scroll (the `stick` branch above) is untouched.
     const sessionChanged = this.prevSessionIdForScroll !== s.sessionId;
     const loadSettled = this.prevLoadingForScroll && !s.loading;
+    // Loader follows the loading flag (toggle only on change — this handler
+    // runs on every store update).
+    if (s.loading !== this.prevLoadingForScroll) {
+      this.loaderEl.style.display = s.loading ? "" : "none";
+    }
     this.prevSessionIdForScroll = s.sessionId;
     this.prevLoadingForScroll = s.loading;
     if (sessionChanged || loadSettled) {
