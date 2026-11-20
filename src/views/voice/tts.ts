@@ -52,6 +52,9 @@ interface Utterance {
   open: boolean;
   /** At least one chunk dispatched — a begun-but-silent utterance isn't busy. */
   dispatched: boolean;
+  /** Skipped (double-tap): synthesis finishes into the replay cache but the
+   *  chunks never play and never count as busy (the glow reads idle). */
+  muted: boolean;
   /** URLs of chunks that finished playing — becomes the replay cache on completion. */
   playedUrls: string[];
   /** Streaming cursor + latest full text (present only while open). */
@@ -135,6 +138,7 @@ export class TtsPlayer {
       id,
       open: true,
       dispatched: false,
+      muted: false,
       playedUrls: [],
       cursor: new ChunkCursor(),
       lastText: "",
@@ -234,6 +238,38 @@ export class TtsPlayer {
       });
     }
     this.pumpPlayback();
+    this.refreshState();
+  }
+
+  /**
+   * Stop/skip (PHASE-17 double-tap on green): halt audible playback of the
+   * current utterance NOW, but let its synthesis finish — the chunks drain
+   * into the replay cache (played=true ownership) so a tap-to-repeat is
+   * instant. The next queued message starts; nothing left = idle.
+   */
+  skipCurrent(): void {
+    const head = this.queue[0];
+    const targetId = head ? head.uttId : this.openId;
+    if (targetId === null) return;
+    // A skip always advances — the "next message starts" rule owns the hold.
+    this.pausedHold = false;
+    if (this.audio) {
+      this.audio.onended = null;
+      this.audio.onerror = null;
+      this.audio.pause();
+    }
+    this.currentUrl = null;
+    const utt = this.utterances.get(targetId);
+    if (utt) {
+      utt.muted = true;
+    } else {
+      // Replay pass (no live record): drop its borrowed chunks — the cache
+      // owns those URLs; nothing to synthesize, nothing to preserve.
+      for (let i = this.queue.length - 1; i >= 0; i--) {
+        if (this.queue[i].uttId === targetId) this.removeChunk(this.queue[i], false);
+      }
+    }
+    this.pumpPlayback(); // drains muted chunks → cache, starts the next message
     this.refreshState();
   }
 
@@ -404,8 +440,22 @@ export class TtsPlayer {
       return;
     }
     const head = this.queue[0];
+    // Skipped-utterance chunks never play: drain them cache-only and advance.
+    // Chunks still synthesizing stay put — pumpPlayback is re-run when their
+    // fetch settles (a sub-round-trip delay before the next message starts).
+    if (head && head.url !== null && this.chunkMuted(head)) {
+      this.removeChunk(head, true); // played=true → URL joins the replay cache
+      this.pumpPlayback();
+      return;
+    }
     if (!head || head.url === null) return; // waiting on synthesis — synthesizing
     this.install(head, audio);
+  }
+
+  /** Skipped (muted) chunks belong to an utterance marked skip-to-cache. */
+  private chunkMuted(chunk: QueuedChunk): boolean {
+    const utt = this.utterances.get(chunk.uttId);
+    return utt !== undefined && utt.muted;
   }
 
   /** Wire the head chunk to the element (event handlers keyed on epoch + URL). */
@@ -526,12 +576,14 @@ export class TtsPlayer {
     this.setState(next);
   }
 
-  /** FIFO busy: any chunk not yet fully played, or an open utterance that has dispatched one. */
+  /** FIFO busy: any non-muted chunk not yet fully played, or an open utterance
+   *  that dispatched one. Muted (skipped) background synthesis is NOT busy —
+   *  the glow must read idle while it finishes into the cache. */
   private busy(): boolean {
-    if (this.queue.length > 0) return true;
+    for (const chunk of this.queue) if (!this.chunkMuted(chunk)) return true;
     if (this.openId === null) return false;
     const utt = this.utterances.get(this.openId);
-    return utt !== undefined && utt.dispatched;
+    return utt !== undefined && utt.dispatched && !utt.muted;
   }
 
   private setState(state: TtsState): void {

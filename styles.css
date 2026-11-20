@@ -1490,7 +1490,9 @@ body.is-mobile .pi-voice-glow {
 /* ── Phase machine: colors × recipe ──────────────────────────────────────── */
 
 .pi-voice-glow.pi-voice-phase-recording,
-.pi-voice-glow.pi-voice-phase-recording_paused {
+.pi-voice-glow.pi-voice-phase-recording_warning,
+.pi-voice-glow.pi-voice-phase-recording_paused,
+.pi-voice-glow.pi-voice-phase-stt_waiting {
   --pi-voice-glow-color: #ff453a; /* red */
 }
 .pi-voice-glow.pi-voice-phase-working,
@@ -1511,9 +1513,23 @@ body.is-mobile .pi-voice-glow {
 
 /* Paused: hold mid-breath, steady */
 .pi-voice-glow.pi-voice-phase-recording_paused .pi-voice-glow-edge,
-.pi-voice-glow.pi-voice-phase-playing_paused .pi-voice-glow-edge {
+.pi-voice-glow.pi-voice-phase-playing_paused .pi-voice-glow-edge,
+.pi-voice-glow-static .pi-voice-glow-edge {
   animation: none;
   --breath: 0.55;
+}
+
+/* Cap warning (PHASE-18): slow steady on/off blink — 1 s lit, 1 s dark.
+   Animates the edge's opacity directly: --breath 0 would still leave the
+   recipe's 0.82 floor visible, which is not "off". */
+.pi-voice-glow.pi-voice-phase-recording_warning .pi-voice-glow-edge {
+  --breath: 0.8;
+  animation: pi-voice-glow-blink 2s linear infinite;
+}
+
+@keyframes pi-voice-glow-blink {
+  0%, 49.9% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }
 
 @keyframes pi-voice-glow-breath {
@@ -1546,27 +1562,6 @@ body.is-mobile .pi-voice-glow {
 }
 
 .pi-voice-activity.pi-voice-activity-on {
-  display: flex;
-}
-
-/* Centered stop-run countdown (controller ticks 3…2…1 while the pointer is
-   down; the surface itself never completes anything — it reports long_release). */
-.pi-voice-countdown {
-  position: absolute;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0 24px;
-  pointer-events: none;
-  color: var(--text-normal);
-  font-family: var(--font-interface);
-  font-size: var(--font-ui-large);
-  font-weight: var(--font-semibold);
-  text-align: center;
-}
-
-.pi-voice-countdown.pi-voice-countdown-on {
   display: flex;
 }
 

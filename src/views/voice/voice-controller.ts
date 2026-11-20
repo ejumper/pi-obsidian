@@ -3,10 +3,11 @@
  * the banner session, the audio pipelines, and the store. Owns all mutable voice
  * state; the overlay is a dumb view fed by `onUi`.
  *
- * Send semantics (typing parity, plan §1.2): a voice transcript goes out through the
- * normal prompt path when idle and through `queuePrompt(…, "followUp")` when a run is
- * active (queued to the next turn, exactly like typing a follow-up). The stop-run
- * countdown aborts through the same `store.abort()` as the Stop button.
+ * Send semantics (PHASE-18): auto-send is gone — the ONLY send path is the
+ * double-tap. Recording starts from full idle only (no follow-up recordings,
+ * PHASE-17 Gap D), so a voice transcript always goes out through the normal
+ * prompt path. The STOP button and the long-press both abort through the
+ * same `store.abort()`.
  */
 import type { AgentMessage } from "../../api/types";
 import type { AgentStore } from "../../state/agent-store";
@@ -34,9 +35,8 @@ export interface VoiceControllerOptions {
   ttsUrl: string;
   /** OpenAI-compatible STT base (default https://stt.halfab.net). */
   sttUrl: string;
-  /** Overlay repaint hook: glow phase + countdown seconds (null = hidden) +
-   *  activity text (null = nothing specific — the glow carries the rest). */
-  onUi?: (phase: VoiceGlowPhase, countdown: number | null, activity: string | null) => void;
+  /** Overlay repaint hook: glow phase + activity/hint text (null = hidden). */
+  onUi?: (phase: VoiceGlowPhase, activity: string | null) => void;
   /** Smoothed audio amplitude for the reactive glow (null = not analysing). */
   onAmp?: (amp: number | null) => void;
   onNotice?: (message: string) => void;
@@ -44,7 +44,7 @@ export interface VoiceControllerOptions {
    *  when none exists (the store's sendPrompt silently no-ops on a session-less
    *  tab) and queues while a run is active (typing parity). */
   sendText: (text: string) => Promise<void>;
-  /** Abort the running agent (STOP button / countdown). */
+  /** Abort the running agent (STOP button / long-press). */
   abortRun: () => Promise<void>;
 }
 
@@ -77,8 +77,6 @@ export class VoiceController {
   private speakListeners = new Set<SpeakListener>();
   private speakId: string | null = null;
   private mode: "voice" | "normal" = "normal";
-  private countdownTimer: number | null = null;
-  private countdownLeft = 0;
   /** Entry ids already spoken-or-skipped: no history replay on toggle-on. */
   private seenIds = new Set<string>();
   private lastSessionId: string | null = null;
@@ -108,12 +106,16 @@ export class VoiceController {
     this.recorder = new VoiceRecorder({
       url: opts.sttUrl,
       onError: (m) => opts.onNotice?.(`Voice STT — ${m}`),
-      // Mic amp deliberately NOT wired (user call): the recording glow keeps
-      // the CSS breath — the on-device envelope read as static. The feed path
-      // stays dormant in stt.ts for a future retune (200 ms feed cadence and
-      // mic level vs. gain are the first suspects).
-      // 60 s silence / 5 min cap auto-send (pi-voice-chat parity).
-      onAutoStop: () => void this.sendRecording(),
+      // Mic amp deliberately NOT wired (user call, PHASE-17 Gap F): the
+      // recording glow keeps the CSS breath — the on-device envelope read as
+      // static in 0.5.2. The feed path stays dormant in stt.ts for a future
+      // retune. Recorder policy (PHASE-18) routes through the reducer so every
+      // state change stays testable — timers never auto-send.
+      onAudio: () => this.dispatch("audio_registered"),
+      onSilencePause: () => this.dispatch("silence_pause"),
+      onSilenceDiscard: () => this.dispatch("silence_discard"),
+      onCapWarning: () => this.dispatch("cap_warning"),
+      onCapReached: () => this.dispatch("cap_reached"),
     });
     this.unsub = opts.store.subscribe(() => this.feed());
     this.feed();
@@ -192,7 +194,6 @@ export class VoiceController {
       }
       this.tts.stopAndFlush();
       this.recorder.discard();
-      this.clearCountdown();
       this.ui = { ...initialVoiceUi, runActive: this.ui.runActive };
       this.paint();
     }
@@ -222,7 +223,7 @@ export class VoiceController {
     this.dispatch("long_release");
   }
 
-  /** Slide-off during a hold — discard the recording. */
+  /** Slide-off during a hold — cancels the pending destructive action. */
   holdCancel(): void {
     this.dispatch("hold_cancel");
   }
@@ -242,7 +243,6 @@ export class VoiceController {
   destroy(): void {
     this.unsub?.();
     this.unsub = null;
-    this.clearCountdown();
     this.tts.stopAndFlush();
     this.recorder.discard();
   }
@@ -282,15 +282,10 @@ export class VoiceController {
       case "replay":
         this.tts.replayCurrent();
         break;
-      case "stop_playback_start_recording":
-        this.tts.stopAndFlush();
-        void this.recorder.start();
-        break;
-      case "show_stop_countdown":
-        this.startCountdown();
-        break;
-      case "cancel_stop_countdown":
-        this.clearCountdown();
+      case "skip_playback":
+        // PHASE-17: the utterance finishes synthesizing into the replay cache
+        // but never plays; the next queued message starts.
+        this.tts.skipCurrent();
         break;
       case "stop_run":
         this.stopRun();
@@ -300,18 +295,21 @@ export class VoiceController {
     }
   }
 
-  /** Record → STT → prompt (or queue when a run is active). */
+  /** Record → STT → prompt. The ONLY send path (PHASE-18: auto-send retired). */
   private async sendRecording(): Promise<void> {
-    this.ui = { ...this.ui, recording: "off" };
-    this.connecting = true; // glow: arc until the run starts (transcribe + send)
-    this.paint();
+    // ui.sttWait (red chaser) is already set by the stop_send transition; it
+    // clears when the transcript is back and the prompt goes out.
     let text = "";
     try {
       text = (await this.recorder.stopAndSend()).trim();
     } catch {
+      this.dispatch("stt_ended"); // glow back from the red chaser
       return; // recorder already reported via onError
     }
+    this.dispatch("stt_ended");
     if (!text) return;
+    this.connecting = true; // white chase: sent → run start
+    this.paint();
     this.session.mode = "voice";
     const wrapped = this.session.wrapOutgoing(text);
     await this.opts.sendText(wrapped);
@@ -387,41 +385,20 @@ export class VoiceController {
     this.paint();
   }
 
-  private startCountdown(): void {
-    this.clearCountdown();
-    this.countdownLeft = 3;
-    this.paint();
-    this.countdownTimer = window.setInterval(() => {
-      this.countdownLeft -= 1;
-      if (this.countdownLeft <= 0) {
-        this.clearCountdown();
-        this.dispatch("countdown_done");
-      } else {
-        this.paint();
-      }
-    }, 1000);
-  }
-
-  private clearCountdown(): void {
-    if (this.countdownTimer !== null) {
-      window.clearInterval(this.countdownTimer);
-      this.countdownTimer = null;
-    }
-  }
-
   private paint(): void {
     // Activity readout: only while a run is doing something SPECIFIC; the
     // in-between run state shows nothing (the glow already carries it). The
-    // stop countdown owns the center while it runs.
-    const countdown = this.countdownTimer !== null ? this.countdownLeft : null;
-    const activity =
-      countdown === null && this.opts.store.state.agentRunning
-        ? currentActivity(this.opts.store.state.messages)
+    // cap hint owns the center while it is up (PHASE-18 — persists until the
+    // capped recording is sent or discarded).
+    const hint =
+      this.ui.capReached && this.ui.recording === "paused"
+        ? "message cap reached, double tap to send"
         : null;
-    this.opts.onUi?.(
-      voicePhase(this.ui, this.ttsGlow, this.connecting),
-      countdown,
-      activity,
-    );
+    const activity =
+      hint ??
+      (this.opts.store.state.agentRunning
+        ? currentActivity(this.opts.store.state.messages)
+        : null);
+    this.opts.onUi?.(voicePhase(this.ui, this.ttsGlow, this.connecting), activity);
   }
 }

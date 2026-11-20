@@ -264,9 +264,8 @@ export class ChatView extends ItemView {
         prompts,
         ttsUrl: this.plugin.settings.ttsUrl,
         sttUrl: this.plugin.settings.sttUrl,
-        onUi: (phase, countdown, activity) => {
+        onUi: (phase, activity) => {
           this.voiceOverlay?.setPhase(phase);
-          this.voiceOverlay?.setCountdown(countdown);
           this.voiceOverlay?.setActivity(activity);
         },
         onAmp: (amp) => this.voiceOverlay?.setAmp(amp),

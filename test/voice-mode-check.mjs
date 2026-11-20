@@ -83,87 +83,157 @@ eq(parsePromptFile("   ", "FB"), "FB", "empty file falls back");
 eq(wrapVoiceBlock("BLOCK", "hello"), "BLOCK\n\nhello", "block stacks above prompt");
 
 // --------------------------------------------------------------- gesture scenarios
+// PHASE-17: touch actions apply to THE GLOW — red = recording, green = TTS,
+// white = run, none = repeat/record/none. Double-tap finishes without losing
+// anything; long-press is the destructive action.
 
 const step = (ui, ev) => reduceVoiceUi(ui, ev);
+const rec0 = step(initialVoiceUi, "double_tap").ui; // recording, not yet spoken
+const rec = step(rec0, "audio_registered").ui; // speech registered
 
 // idle
 let r = step(initialVoiceUi, "tap");
-eq(r.action, "replay", "idle tap replays (universal pause/play)");
+eq(r.action, "replay", "idle tap repeats the response on screen");
 r = step(initialVoiceUi, "long_press");
-eq(r.action, "replay", "idle long-press replays");
+eq(r.action, null, "idle long-press is a no-op (nothing destructive to do)");
 r = step(initialVoiceUi, "long_release");
 eq(r.action, null, "idle release does nothing");
+r = step(initialVoiceUi, "hold_cancel");
+eq(r.action, null, "slide-off cancels the hold — destructive needs the full hold");
+r = step(initialVoiceUi, "double_tap");
+eq(r.action, "start_recording", "idle double-tap starts recording");
+eq(r.ui.recording, "on", "recording on");
+eq(r.ui.hasAudio, false, "new recording starts with no registered audio");
 
-// recording (double-tap records; tap pauses; long-press discards)
-let rec = step(initialVoiceUi, "double_tap").ui;
+// recording (tap pauses/resumes; double-tap sends; long-press discards)
 r = step(rec, "tap");
 eq(r.action, "pause_recording", "recording tap pauses");
 r = step(r.ui, "tap");
 eq(r.action, "resume_recording", "paused tap resumes");
 r = step(rec, "long_press");
 eq(r.action, "discard_recording", "recording long-press discards");
+eq(r.ui.recording, "off", "discard clears recording");
 r = step(rec, "double_tap");
 eq(r.action, "stop_send", "recording double-tap sends");
 eq(r.ui.recording, "off", "send clears recording");
+eq(r.ui.sttWait, true, "send arms the red STT chaser");
 
-// run: long-press arms the stop-run countdown (held through 3…2…1)
+// double-tap with NO registered audio = nothing (nothing to send)
+r = step(rec0, "double_tap");
+eq(r.action, null, "double-tap with no audio does nothing");
+eq(r.ui.recording, "on", "still recording");
+r = step(rec0, "long_press");
+eq(r.action, "discard_recording", "long-press discards even an empty recording");
+
+// the red chaser: all gestures inert while STT works
+let wait = step(rec, "double_tap").ui;
+r = step(wait, "tap");
+eq(r.action, null, "stt-wait tap does nothing");
+r = step(wait, "double_tap");
+eq(r.action, null, "stt-wait double-tap does nothing");
+r = step(wait, "long_press");
+eq(r.action, null, "stt-wait long-press does nothing");
+r = step(wait, "stt_ended");
+eq(r.ui.sttWait, false, "stt_ended clears the chaser");
+r = step({ ...wait, runActive: true }, "run_started");
+eq(r.ui.sttWait, false, "run_started clears a leftover chaser");
+
+// run (white): destructive long-press only — NO follow-up recordings (Gap D #1)
 let run = step(initialVoiceUi, "run_started").ui;
 r = step(run, "tap");
 eq(r.action, null, "working tap does nothing");
+r = step(run, "double_tap");
+eq(r.action, null, "working double-tap does nothing — no follow-up recordings");
 r = step(run, "long_press");
-eq(r.action, "show_stop_countdown", "working long-press arms the countdown");
-eq(r.ui.countdown, true, "countdown armed");
-r = step(r.ui, "long_release");
-eq(r.action, "cancel_stop_countdown", "release cancels the countdown");
-r = step(run, "long_press");
-r = step(r.ui, "countdown_done");
-eq(r.action, "stop_run", "held countdown stops the run");
+eq(r.action, "stop_run", "working long-press stops the run (immediate — no countdown)");
 eq(r.ui.runActive, true, "run still active until run_ended");
 r = step(r.ui, "run_ended");
 eq(voicePhase(r.ui), "idle", "run_ended returns to idle");
-r = step(initialVoiceUi, "countdown_done");
-eq(r.action, null, "stray countdown_done is a no-op");
 
-// queued follow-up while running (typing parity: send queues, run continues)
-let q = step(run, "double_tap");
-eq(q.action, "start_recording", "working double-tap records a follow-up");
-q = step(q.ui, "double_tap");
-eq(q.action, "stop_send", "follow-up sends");
-eq(q.ui.runActive, true, "send does not touch the run");
-
-// playback
+// playback (green): tap pauses, double-tap skips (cache-only), long-press = run rules
 let play = step(initialVoiceUi, "playback_started").ui;
 r = step(play, "tap");
 eq(r.action, "pause_playback", "playback tap pauses");
 r = step(r.ui, "tap");
-eq(r.action, "resume_playback", "paused tap resumes");
+eq(r.action, "resume_playback", "paused playback tap resumes");
 r = step(play, "double_tap");
-eq(r.action, "stop_playback_start_recording", "playback double-tap records over it");
-eq(r.ui.playback, "off", "recording stops playback");
+eq(r.action, "skip_playback", "playback double-tap skips (finishes to cache, never plays)");
+eq(r.ui.playback, "off", "skip clears the playback flag");
 r = step(play, "long_press");
-eq(r.action, "replay", "playback long-press replays");
-
-// overlap priorities: recording wins long-press over run; run wins over playback
-const both = step(
+eq(r.action, null, "green long-press with no run does nothing");
+const greenRun = step(
   step(initialVoiceUi, "run_started").ui,
   "playback_started",
 ).ui;
-r = step(both, "long_press");
-eq(r.action, "show_stop_countdown", "run wins long-press over playback");
-r = step(both, "tap");
-eq(r.action, "pause_playback", "tap still pauses the playback");
-const recOverRun = step(run, "double_tap").ui;
-r = step(recOverRun, "long_press");
-eq(r.action, "discard_recording", "recording wins long-press over run");
+r = step(greenRun, "long_press");
+eq(r.action, "stop_run", "green long-press with a run stops the run");
+r = step(greenRun, "tap");
+eq(r.action, "pause_playback", "tap still pauses the playback over a run");
 
-// glow phases
+// overlap priorities: recording wins long-press over run
+const recOverRun = step(
+  step(initialVoiceUi, "run_started").ui,
+  "double_tap",
+).ui;
+eq(recOverRun.recording, "off", "double-tap never starts recording over a run");
+
+// recorder policy events (PHASE-18)
+r = step(rec0, "audio_registered");
+eq(r.ui.hasAudio, true, "audio_registered sets the send guard");
+r = step(rec, "silence_pause");
+eq(r.action, "pause_recording", "30 s silence with audio pauses (preserve the work)");
+eq(r.ui.recording, "paused", "silence-paused");
+r = step(rec, "silence_discard");
+eq(r.action, "discard_recording", "30 s silence with no audio discards");
+r = step(rec0, "silence_discard");
+eq(r.action, "discard_recording", "accidental start (never spoke) discards");
+r = step({ ...rec, capWarning: true }, "cap_reached");
+eq(r.action, "pause_recording", "the cap auto-pauses");
+eq(r.ui.capReached, true, "cap is reached");
+eq(r.ui.capWarning, false, "the blink gives way to red static at the cap");
+r = step(r.ui, "tap");
+eq(r.action, null, "cap-paused tap does nothing — the cap is absolute");
+r = step(r.ui, "double_tap");
+eq(r.action, "stop_send", "cap-paused double-tap sends");
+r = step(initialVoiceUi, "cap_reached");
+eq(r.ui.capReached, false, "cap_reached with no recording is inert");
+
+// glow phases (precedence: red > green > white > off)
 eq(voicePhase(initialVoiceUi), "idle", "phase: idle");
 eq(voicePhase({ ...initialVoiceUi, recording: "on" }), "recording", "phase: recording");
-eq(voicePhase({ ...initialVoiceUi, recording: "paused" }), "recording_paused", "phase: paused recording");
+eq(
+  voicePhase({ ...initialVoiceUi, recording: "on", capWarning: true }),
+  "recording_warning",
+  "phase: cap warning blink",
+);
+eq(
+  voicePhase({ ...initialVoiceUi, recording: "paused" }),
+  "recording_paused",
+  "phase: paused recording",
+);
+eq(voicePhase({ ...initialVoiceUi, sttWait: true }), "stt_waiting", "phase: red STT chaser");
 eq(voicePhase({ ...initialVoiceUi, runActive: true }), "working", "phase: working");
 eq(voicePhase({ ...initialVoiceUi, playback: "on" }), "playing", "phase: playing");
-eq(voicePhase({ ...initialVoiceUi, playback: "paused" }), "playing_paused", "phase: paused playback");
-eq(voicePhase({ ...initialVoiceUi, recording: "on", runActive: true }), "recording", "phase: recording beats run");
+eq(
+  voicePhase({ ...initialVoiceUi, playback: "paused" }),
+  "playing_paused",
+  "phase: paused playback",
+);
+eq(
+  voicePhase({ ...initialVoiceUi, recording: "on", runActive: true }),
+  "recording",
+  "phase: recording beats run",
+);
+eq(
+  voicePhase({ ...initialVoiceUi, sttWait: true, runActive: true }),
+  "stt_waiting",
+  "phase: red chaser beats white",
+);
+eq(
+  voicePhase({ ...initialVoiceUi, playback: "on", runActive: true }),
+  "playing",
+  "phase: green beats white",
+);
 
 // activity readout (0.5.1): thinking / live tool phrases / nothing in between
 const user = (t) => ({ role: "user", content: t });

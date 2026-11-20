@@ -2,7 +2,7 @@
  * Voice-mode overlay DOM (PHASE-14 §1.2) — the dumb view layer that covers the
  * chat transcript while voice mode is on (the transcript stays mounted
  * underneath). It owns DOM only: pane geometry, the glow state machine (colors ×
- * modes ported from pi-voice-chat's app/chat/chat.css), the stop-run countdown
+ * modes ported from pi-voice-chat's app/chat/chat.css), the activity/hint readout
  * text, the last-message render through the existing React transcript renderer,
  * and the driving-tested pointer gesture set (320 ms double-tap window, 1 000 ms
  * long press, 12 px drift cancel — the /chat timings). Every decision lives in
@@ -61,7 +61,9 @@ const DRIFT_PX = 12;
 const GLOW_PHASES: readonly VoiceGlowPhase[] = [
   "idle",
   "recording",
+  "recording_warning",
   "recording_paused",
+  "stt_waiting",
   "connecting",
   "working",
   "synthesizing",
@@ -102,7 +104,6 @@ export class VoiceOverlay {
   private readonly handlers: VoiceOverlayHandlers;
   private readonly gesturesEl: HTMLElement;
   private readonly msgEl: HTMLElement;
-  private readonly countdownEl: HTMLElement;
   private readonly activityEl: HTMLElement;
   private readonly stopEl: HTMLElement;
   private readonly glowEl: HTMLElement;
@@ -127,7 +128,7 @@ export class VoiceOverlay {
     this.opts = opts;
     this.handlers = opts.handlers;
 
-    // ---- DOM: pane > gestures(> msg) / countdown / stop; glow is a SEPARATE
+    // ---- DOM: pane > gestures(> msg) / activity / stop; glow is a SEPARATE
     // body-level layer (beta18) so it can sit above the app header — inside the
     // pane's stacking context the header painted over the frame's top edge ----
     const pane = div("pi-voice-pane");
@@ -153,8 +154,6 @@ export class VoiceOverlay {
 
     const activity = div("pi-voice-activity");
 
-    const countdown = div("pi-voice-countdown");
-
     const stop = document.createElement("button");
     stop.className = "pi-voice-stop";
     stop.textContent = "Stop";
@@ -163,14 +162,13 @@ export class VoiceOverlay {
       e.stopPropagation();
       this.handlers.onStopRun?.();
     });
-    pane.append(gestures, activity, countdown, stop);
+    pane.append(gestures, activity, stop);
     document.body.appendChild(glow);
     this.el = pane;
     this.glowEl = glow;
     this.edgeEl = edge;
     this.gesturesEl = gestures;
     this.msgEl = msg;
-    this.countdownEl = countdown;
     this.activityEl = activity;
     this.stopEl = stop;
 
@@ -237,28 +235,20 @@ export class VoiceOverlay {
   setPhase(phase: VoiceGlowPhase): void {
     for (const p of GLOW_PHASES) this.glowEl.classList.remove(`pi-voice-phase-${p}`);
     this.glowEl.classList.add(`pi-voice-phase-${phase}`);
-    // Recipe select: connecting/synthesizing run the traveling chaser; every
-    // other phase breathes the whole string (glow-effect/*.html port).
-    const chase = phase === "connecting" || phase === "synthesizing";
+    // Recipe select (PHASE-17): chase = traveling comet (connecting /
+    // synthesizing / stt_waiting); blink = the 1s-on/1s-off cap warning;
+    // static = paused (red or green); breath = everything else.
+    const chase =
+      phase === "connecting" || phase === "synthesizing" || phase === "stt_waiting";
+    const blink = phase === "recording_warning";
+    const still = phase === "recording_paused" || phase === "playing_paused";
     this.glowEl.classList.toggle("pi-voice-glow-chase", chase);
-    this.glowEl.classList.toggle("pi-voice-glow-breath", !chase);
+    this.glowEl.classList.toggle("pi-voice-glow-blink", blink);
+    this.glowEl.classList.toggle("pi-voice-glow-static", still);
+    this.glowEl.classList.toggle("pi-voice-glow-breath", !chase && !blink && !still);
     // The STOP button exists once a run is in flight (connecting included).
     this.stopEl.style.display =
       phase === "working" || phase === "connecting" ? "" : "none";
-  }
-
-  /** null hides; 3/2/1 shows "Stopping run in 3…". The controller ticks it —
-   *  the gesture surface never completes or cancels anything itself, it only
-   *  reports long_release when the pointer lifts. */
-  setCountdown(seconds: number | null): void {
-    if (this.destroyed) return;
-    if (seconds === null) {
-      this.countdownEl.classList.remove("pi-voice-countdown-on");
-      this.countdownEl.textContent = "";
-      return;
-    }
-    this.countdownEl.textContent = `Stopping run in ${seconds}…`;
-    this.countdownEl.classList.add("pi-voice-countdown-on");
   }
 
   /** Last completed message + the streaming tail — the ONLY things in the units
@@ -377,8 +367,8 @@ export class VoiceOverlay {
       this.longTimer = null;
     }
     if (this.longFired) {
-      // Held: the release reports long_release instead of any tap logic —
-      // the controller cancels (or has already consumed) the countdown there.
+      // Held past the threshold: the destructive action already fired there —
+      // the release is pure bookkeeping (no tap logic runs).
       this.longFired = false;
       this.handlers.onLongRelease(this.swiped);
       return;

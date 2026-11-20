@@ -1,8 +1,11 @@
 /**
- * Voice-mode dictation recorder — getUserMedia + MediaRecorder with silence
- * auto-stop and multipart upload to an OpenAI-compatible
+ * Voice-mode dictation recorder — getUserMedia + MediaRecorder with the
+ * PHASE-18 silence/cap policy and multipart upload to an OpenAI-compatible
  * `/v1/audio/transcriptions` endpoint (verified live: stt.halfab.net returns
  * `{"text": "..."}`).
+ *
+ * The timers NEVER auto-send (auto-send was retired): 30 s of silence pauses
+ * (or discards an accidental start), the 15-min cap pauses absolutely.
  *
  * Browser APIs only (getUserMedia, MediaRecorder, Web Audio, fetch) — no
  * Obsidian imports, no npm deps. The fetch error style mirrors tts.ts; each
@@ -13,8 +16,9 @@ import { AudioAmp } from "./audio-amp";
 /** Mime negotiation order: first MediaRecorder.isTypeSupported hit wins; default if none. */
 const RECORDER_MIMES = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
 const SILENCE_RMS = 0.02;
-const SILENCE_WINDOW_MS = 60_000;
-const MAX_RECORDING_MS = 5 * 60_000;
+const SILENCE_WINDOW_MS = 30_000;
+const MAX_RECORDING_MS = 15 * 60_000;
+const CAP_WARNING_BEFORE_MS = 30_000;
 const WATCH_TICK_MS = 200;
 const STOP_WATCHDOG_MS = 5_000;
 const STT_PATH = "/v1/audio/transcriptions";
@@ -23,8 +27,16 @@ const STT_MODEL = "small.en";
 export interface VoiceRecorderOptions {
   /** Base STT URL, e.g. https://stt.halfab.net (path appended if missing). */
   url: string;
-  /** 60 s of continuous silence or the 5-minute hard cap — caller decides send vs. discard. */
-  onAutoStop?: () => void;
+  /** 30 s of silence AFTER speech was registered — pause (audio preserved). */
+  onSilencePause?: () => void;
+  /** 30 s of silence with nothing ever spoken — accidental start, discard. */
+  onSilenceDiscard?: () => void;
+  /** First speech registered in the current recording (send guard). */
+  onAudio?: () => void;
+  /** 30 s of recording time left — the red 1s/1s blink warning. */
+  onCapWarning?: () => void;
+  /** 15-min hard cap reached — auto-pause (absolute; only send/discard proceed). */
+  onCapReached?: () => void;
   onError?: (message: string) => void;
   /** Smoothed mic amplitude for the reactive glow (null = not recording). */
   onAmp?: (amp: number | null) => void;
@@ -41,8 +53,14 @@ export class VoiceRecorder {
   private source: MediaStreamAudioSourceNode | null = null;
   private watchTimer: number | null = null;
   private capTimer: number | null = null;
+  private capWarnTimer: number | null = null;
+  /** Remaining recording-time budget — pauses bank it (accumulated cap). */
+  private capLeft = MAX_RECORDING_MS;
+  private capArmedAt = 0;
   private silenceStart: number | null = null;
   private silenceFired = false;
+  /** Speech registered in the current recording (splits the silence outcome). */
+  private speechRegistered = false;
 
   private discardOnStop = false;
   private pendingStop: ((blob: Blob | null) => void) | null = null;
@@ -112,6 +130,8 @@ export class VoiceRecorder {
     this.discardOnStop = false;
     this.silenceFired = false;
     this.silenceStart = null;
+    this.speechRegistered = false;
+    this.capLeft = MAX_RECORDING_MS;
 
     // Every handler checks identity so a stale recorder's late events can
     // never corrupt (or tear down) a newer session.
@@ -145,6 +165,7 @@ export class VoiceRecorder {
       return;
     }
     this.silenceStart = null;
+    this.bankCap();
     // Recording held → freeze the amp (the glow falls back to the CSS steady).
     this.amp?.stop();
   }
@@ -156,7 +177,12 @@ export class VoiceRecorder {
       rec.resume();
     } catch (err) {
       this.error(`Resume failed: ${errText(err)}`);
+      return;
     }
+    // Fresh silence window per resume — 30 s of quiet pauses again.
+    this.silenceFired = false;
+    this.silenceStart = null;
+    this.armCap();
   }
 
   /** Stop and drop the partial recording; the object stays usable for the next start(). */
@@ -244,13 +270,9 @@ export class VoiceRecorder {
 
   // ── recording lifecycle ─────────────────────────────────────────────────
 
-  /** Silence watch (Web Audio RMS) + 5-minute hard cap — both fire onAutoStop. */
+  /** Silence watch (Web Audio RMS) + the 15-min accumulated hard cap. */
   private armWatches(stream: MediaStream): void {
-    this.capTimer = setTimeout(() => {
-      this.capTimer = null;
-      this.clearWatch(); // the cap supersedes silence detection
-      this.opts.onAutoStop?.();
-    }, MAX_RECORDING_MS);
+    this.armCap();
 
     // Analysis only — deliberately NOT connected to the destination, so
     // nothing is monitored or fed back into the mic.
@@ -274,12 +296,48 @@ export class VoiceRecorder {
     }
   }
 
+  /**
+   * The 15-min cap is ACCUMULATED recording time: pauses bank the rest
+   * (armCap/bankCap). Fires the warning at 30 s remaining, then the cap.
+   */
+  private armCap(): void {
+    const warnIn = this.capLeft - CAP_WARNING_BEFORE_MS;
+    if (warnIn > 0) {
+      this.capWarnTimer = setTimeout(() => {
+        this.capWarnTimer = null;
+        this.opts.onCapWarning?.();
+      }, warnIn);
+    }
+    this.capArmedAt = Date.now();
+    this.capTimer = setTimeout(() => {
+      this.capTimer = null;
+      if (this.capWarnTimer !== null) {
+        clearTimeout(this.capWarnTimer);
+        this.capWarnTimer = null;
+      }
+      this.opts.onCapReached?.();
+    }, this.capLeft);
+  }
+
+  /** Pause: stop the cap timers and bank the unspent budget. */
+  private bankCap(): void {
+    if (this.capTimer !== null) {
+      this.capLeft = Math.max(1, this.capLeft - (Date.now() - this.capArmedAt));
+      clearTimeout(this.capTimer);
+      this.capTimer = null;
+    }
+    if (this.capWarnTimer !== null) {
+      clearTimeout(this.capWarnTimer);
+      this.capWarnTimer = null;
+    }
+  }
+
   private watchTick(buf: Float32Array<ArrayBuffer>): void {
     const rec = this.recorder;
     const analyser = this.analyser;
     if (!rec || !analyser || rec.state !== "recording" || this.audioCtx?.state !== "running") {
       // Paused (or stopped / suspended context, whose zeros would read as
-      // false silence): suspend the measurement so the 60 s window restarts
+      // false silence): suspend the measurement so the 30 s window restarts
       // from the next live tick.
       this.silenceStart = null;
       return;
@@ -290,6 +348,10 @@ export class VoiceRecorder {
     for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     const rms = Math.sqrt(sum / buf.length);
     if (rms >= SILENCE_RMS) {
+      if (!this.speechRegistered) {
+        this.speechRegistered = true;
+        this.opts.onAudio?.();
+      }
       this.silenceStart = null;
       return;
     }
@@ -300,8 +362,15 @@ export class VoiceRecorder {
     }
     if (now - this.silenceStart >= SILENCE_WINDOW_MS && !this.silenceFired) {
       this.silenceFired = true;
-      this.stopSilenceWatch(); // the 5-minute cap stays armed as a second chance
-      this.opts.onAutoStop?.();
+      if (this.speechRegistered) {
+        // Preserve the work: a regular pause (tap resumes). The recorder
+        // pauses through the reducer's action path.
+        this.opts.onSilencePause?.();
+      } else {
+        // Never spoke — accidental start: discard (the long-press equivalent).
+        this.stopSilenceWatch();
+        this.opts.onSilenceDiscard?.();
+      }
     }
   }
 
@@ -375,6 +444,10 @@ export class VoiceRecorder {
     if (this.capTimer !== null) {
       clearTimeout(this.capTimer);
       this.capTimer = null;
+    }
+    if (this.capWarnTimer !== null) {
+      clearTimeout(this.capWarnTimer);
+      this.capWarnTimer = null;
     }
   }
 
