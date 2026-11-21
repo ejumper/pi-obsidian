@@ -1,7 +1,7 @@
-// Voice-mode pure-logic regression check (PHASE-14): banner state machine
+// Voice-mode pure-logic regression check (PHASE-14/17/18/19): banner state machine
 // (mode × announced × bannerVerified), transcript recovery/strip, prompt-file parsing,
-// and the gesture reducer (every path of the state × event table incl. the stop-run
-// countdown). Loads the REAL built bundle like the other harnesses.
+// the gesture reducer (the glow-family map), the display slot machine, and the
+// chunk-cut policy. Loads the REAL built bundle like the other harnesses.
 //
 // Usage: npm run check        (builds first)
 //        node test/voice-mode-check.mjs   (uses existing dist/main.js)
@@ -38,6 +38,10 @@ const {
   reduceVoiceUi,
   voicePhase,
   initialVoiceUi,
+  reduceSlot,
+  slotView,
+  initialSlotState,
+  chunkCutAction,
   currentActivity,
   toolActivity,
   ChunkCursor,
@@ -320,6 +324,83 @@ eq(voicePhase({ ...initialVoiceUi, runActive: true }, "off"), "working",
   "phase: white breath when no TTS is happening");
 eq(voicePhase({ ...initialVoiceUi, recording: "on", runActive: true }, "playing"),
   "recording", "phase: recording still beats everything");
+
+// ---------------------------------------------- display slot (PHASE-19 scenarios)
+
+const sev = (state, ev) => reduceSlot(state, ev);
+let sl = initialSlotState;
+
+// stream-in rule: a fresh response shows the moment text starts flowing
+let v = slotView(sl, 5);
+eq(v, { kind: "message", idx: 5, streaming: true }, "stream-in: tail shows live");
+eq(slotView(sl, -1), { kind: "activity" }, "nothing anywhere: activity");
+
+// speech queue: the display follows playback — later replies wait their turn
+sl = sev(sl, { type: "utterance_begun", uttId: 1, idx: 3 });
+sl = sev(sl, { type: "utterance_begun", uttId: 2, idx: 5 });
+v = slotView(sl, 5);
+eq(v, { kind: "message", idx: 3, streaming: false }, "queue: the read head wins over the streaming tail");
+
+// mid-generation arrival at the queue top shows live
+sl = sev(sl, { type: "utterance_complete", uttId: 1 });
+v = slotView(sl, 5);
+eq(v, { kind: "message", idx: 5, streaming: true }, "queue top mid-generation displays streaming in");
+
+// intermediate read -> cleared -> activity when nothing follows
+sl = sev(sl, { type: "utterance_complete", uttId: 2 });
+eq(slotView(sl, -1), { kind: "activity" }, "intermediate clears on read: tools/thinking show");
+eq(slotView(sl, 5), { kind: "activity" }, "a cleared response is never re-shown");
+
+// run lifecycle: the final is sticky within its run, gone when the next starts
+sl = sev(sl, { type: "run_ended", finalIdx: 7 });
+eq(slotView(sl, -1), { kind: "message", idx: 7, streaming: false }, "final stays on screen after the run");
+sl = sev(sl, { type: "run_started" });
+eq(slotView(sl, -1), { kind: "activity" }, "final clears when the next run starts");
+eq(slotView(sl, 8), { kind: "message", idx: 8, streaming: true }, "the new run's reply streams in");
+
+// carve-out: a final still being read when the next run starts clears on completion
+sl = initialSlotState;
+sl = sev(sl, { type: "run_ended", finalIdx: 4 });
+sl = sev(sl, { type: "utterance_begun", uttId: 9, idx: 4 }); // read begins late
+sl = sev(sl, { type: "run_started" }); // next run while still reading
+v = slotView(sl, -1);
+eq(v, { kind: "message", idx: 4, streaming: false }, "being read wins over the run-start clear");
+sl = sev(sl, { type: "utterance_complete", uttId: 9 });
+eq(slotView(sl, -1), { kind: "activity" }, "the mid-read final advances when its read completes");
+
+// skip semantics: completing (skipping) the head advances to the next reply
+sl = initialSlotState;
+sl = sev(sl, { type: "utterance_begun", uttId: 1, idx: 1 });
+sl = sev(sl, { type: "utterance_begun", uttId: 2, idx: 2 });
+sl = sev(sl, { type: "utterance_complete", uttId: 1 }); // skip counts as finished
+eq(slotView(sl, -1), { kind: "message", idx: 2, streaming: false }, "skip: the next queued reply takes over");
+
+// flush (stop run / voice off): queued speech is gone, sticky final survives
+sl = sev(sl, { type: "flush" });
+eq(slotView(sl, -1), { kind: "activity" }, "flush drops the queue");
+sl = sev(sl, { type: "run_ended", finalIdx: 3 });
+sl = sev(sl, { type: "utterance_begun", uttId: 4, idx: 3 });
+sl = sev(sl, { type: "flush" });
+eq(slotView(sl, -1), { kind: "message", idx: 3, streaming: false }, "flush keeps the sticky final (tap-to-repeat)");
+
+// unknown utterances (normal-mode read-aloud) never disturb the slot
+sl = sev(sl, { type: "utterance_complete", uttId: 999 });
+eq(slotView(sl, -1), { kind: "message", idx: 3, streaming: false }, "unknown completion is inert");
+
+// session reset clears the story
+sl = sev(sl, { type: "session_reset" });
+eq(slotView(sl, -1), { kind: "activity" }, "session reset: activity");
+
+// ------------------------------------------- chunk-cut policy (PHASE-18B)
+
+eq(chunkCutAction(10_000, 3_000, true), "none", "under the min chunk size: no cut");
+eq(chunkCutAction(21_000, 2_400, true), "none", "silence under 2.5s: no cut");
+eq(chunkCutAction(21_000, 2_600, true), "cut_silence", "min size + long silence: cut at the silence onset");
+eq(chunkCutAction(21_000, 0, true), "none", "mid-speech under the ceiling: no cut");
+eq(chunkCutAction(21_000, 2_600, false), "none", "no speech yet: never cut");
+eq(chunkCutAction(61_000, 0, true), "cut_now", "ceiling mid-speech: hard cut at the live edge");
+eq(chunkCutAction(61_000, 1_500, true), "cut_silence", "ceiling in silence: cut at the onset instead");
+eq(chunkCutAction(61_000, 0, false), "cut_now", "ceiling without speech (defensive): cut");
 
 console.log(failures === 0 ? "\nvoice-mode-check: all green" : `\nvoice-mode-check: ${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

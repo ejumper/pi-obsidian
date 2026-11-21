@@ -27,6 +27,7 @@ import type { SpeakListener } from "../speak-context";
 import { VoiceSession } from "./voice-session";
 import { TtsPlayer } from "./tts";
 import { VoiceRecorder } from "./stt";
+import { initialSlotState, reduceSlot, slotView, type SlotState } from "./slot-state";
 
 export interface VoiceControllerOptions {
   store: AgentStore;
@@ -37,6 +38,9 @@ export interface VoiceControllerOptions {
   sttUrl: string;
   /** Overlay repaint hook: glow phase + activity/hint text (null = hidden). */
   onUi?: (phase: VoiceGlowPhase, activity: string | null) => void;
+  /** PHASE-19 display slot: the single reply currently on screen (msg frozen
+   *  or the streaming tail) — both null = the activity readout shows. */
+  onSlot?: (msg: AgentMessage | null, streaming: AgentMessage | null) => void;
   /** Smoothed audio amplitude for the reactive glow (null = not analysing). */
   onAmp?: (amp: number | null) => void;
   onNotice?: (message: string) => void;
@@ -69,8 +73,13 @@ export class VoiceController {
   private connecting = false;
   /** TTS pipeline state for the glow (green breath > green chase > white). */
   private ttsGlow: TtsGlow = "off";
-  /** The utterance being streamed to TTS (its assistant message index). */
-  private utter: { idx: number } | null = null;
+  /** The utterance being streamed to TTS (message index + TTS id). */
+  private utter: { idx: number; uttId: number } | null = null;
+  /** PHASE-19 display slot: pure state machine + uttId→message idx. */
+  private slot: SlotState = initialSlotState;
+  private uttIdx = new Map<number, number>();
+  /** Whether the slot currently holds a reply (gates the activity readout). */
+  private slotReply = false;
   /** Utterance whose speech was stopped — never restart it. */
   private suppressIdx = -1;
   /** Read-aloud observers (the message Read button) + its active message id. */
@@ -95,11 +104,18 @@ export class VoiceController {
       onStateChange: (st) => {
         this.ttsGlow = st === "idle" ? "off" : st;
         // Gesture layer: synthesizing counts as "speech pending" — tap holds
-        // the queue, double-tap interrupts it to record.
+        // the queue, double-tap skips it (cache-only).
         if (st === "idle") this.ui = { ...this.ui, playback: "off" };
         else if (st === "paused") this.ui = { ...this.ui, playback: "paused" };
         else this.ui = { ...this.ui, playback: "on" };
         this.emitSpeak(st);
+        this.paint();
+      },
+      // PHASE-19: an utterance fully read (or drained cache-only) advances
+      // the display slot.
+      onUtteranceComplete: (uttId) => {
+        this.uttIdx.delete(uttId);
+        this.slot = reduceSlot(this.slot, { type: "utterance_complete", uttId });
         this.paint();
       },
     });
@@ -183,9 +199,6 @@ export class VoiceController {
         this.seenIds.add(s.entryIds[i]);
       }
       this.paint();
-      // Absorb WebKit's first-recording-is-empty quirk with a throwaway clip —
-      // the panel tap is a user gesture, so getUserMedia is legal right here.
-      void this.recorder.prime();
     } else {
       this.connecting = false;
       if (this.utter) {
@@ -194,6 +207,8 @@ export class VoiceController {
       }
       this.tts.stopAndFlush();
       this.recorder.discard();
+      this.slot = reduceSlot(this.slot, { type: "flush" });
+      this.uttIdx.clear();
       this.ui = { ...initialVoiceUi, runActive: this.ui.runActive };
       this.paint();
     }
@@ -237,6 +252,8 @@ export class VoiceController {
       this.utter = null;
     }
     this.tts.stopAndFlush();
+    this.slot = reduceSlot(this.slot, { type: "flush" });
+    this.uttIdx.clear();
     void this.opts.abortRun();
   }
 
@@ -245,6 +262,8 @@ export class VoiceController {
     this.unsub = null;
     this.tts.stopAndFlush();
     this.recorder.discard();
+    this.slot = reduceSlot(this.slot, { type: "flush" });
+    this.uttIdx.clear();
   }
 
   // ---------------------------------------------------------------- internals
@@ -327,21 +346,36 @@ export class VoiceController {
       this.lastSessionId = s.sessionId;
       this.session.bind(s.messages.map(messageText));
       this.seenIds = new Set(s.entryIds);
+      // PHASE-19: a new session restarts the display story; close a leftover
+      // utterance so its text flushes to the old session's speech.
+      if (this.utter) {
+        this.tts.endUtterance();
+        this.utter = null;
+      }
+      this.slot = reduceSlot(this.slot, { type: "session_reset" });
+      this.uttIdx.clear();
     }
     this.session.noteContextTokens(s.contextUsage?.tokens ?? null);
 
     if (s.agentRunning !== this.lastRunning) {
       this.lastRunning = s.agentRunning;
-      if (s.agentRunning) this.connecting = false;
+      if (s.agentRunning) {
+        this.connecting = false;
+        this.slot = reduceSlot(this.slot, { type: "run_started" });
+      } else {
+        this.slot = reduceSlot(this.slot, {
+          type: "run_ended",
+          finalIdx: lastAssistantIdx(s),
+        });
+      }
       this.ui = reduceVoiceUi(this.ui, s.agentRunning ? "run_started" : "run_ended").ui;
     }
 
     if (this.mode === "voice") {
-      // ---- streaming TTS (0.5.2): one utterance per assistant message, fed
-      // incrementally so mid-run text speaks mid-run and the final response
-      // starts at its first break instead of after the whole message.
-      // Complete = a later entry exists (toolResult included) or the run
-      // ended — that flushes the tail.
+      // ---- streaming TTS: one utterance per assistant message, fed
+      // incrementally (the tail's text speaks mid-run; a completed message is
+      // fed whole). Complete = a later entry exists (toolResult included) or
+      // the run ended — that flushes the tail.
       if (this.utter) {
         const complete =
           s.messages.length - 1 > this.utter.idx || !s.agentRunning;
@@ -356,26 +390,37 @@ export class VoiceController {
         }
       }
 
-      // Live turn = the last assistant message, never crossing a user message.
+      // Live turn: the streaming tail while it grows — its message lands at
+      // messages.length on message_end (index-continuous) — else the last
+      // completed assistant message, never crossing a user message.
       let liveIdx = -1;
-      for (let i = s.messages.length - 1; i >= 0; i--) {
-        const m = s.messages[i];
-        if (m.role === "assistant") {
-          liveIdx = i;
-          break;
+      let liveText = "";
+      if (s.streamingMessage && s.streamingMessage.role === "assistant") {
+        liveIdx = s.messages.length;
+        liveText = messageText(s.streamingMessage);
+      } else {
+        for (let i = s.messages.length - 1; i >= 0; i--) {
+          const m = s.messages[i];
+          if (m.role === "assistant") {
+            liveIdx = i;
+            liveText = messageText(m);
+            break;
+          }
+          if (m.role === "user") break;
         }
-        if (m.role === "user") break;
       }
       if (liveIdx >= 0 && liveIdx !== this.suppressIdx) {
         if (!this.utter) {
           const id = s.entryIds[liveIdx];
           if (!id || !this.seenIds.has(id)) {
-            this.utter = { idx: liveIdx };
-            this.tts.beginUtterance();
+            const uttId = this.tts.beginUtterance();
+            this.utter = { idx: liveIdx, uttId };
+            this.uttIdx.set(uttId, liveIdx);
+            this.slot = reduceSlot(this.slot, { type: "utterance_begun", uttId, idx: liveIdx });
           }
         }
         if (this.utter && this.utter.idx === liveIdx) {
-          this.tts.noteText(messageText(s.messages[liveIdx]));
+          this.tts.noteText(liveText);
         }
       }
     } else {
@@ -386,19 +431,46 @@ export class VoiceController {
   }
 
   private paint(): void {
-    // Activity readout: only while a run is doing something SPECIFIC; the
-    // in-between run state shows nothing (the glow already carries it). The
-    // cap hint owns the center while it is up (PHASE-18 — persists until the
-    // capped recording is sent or discarded).
+    this.emitSlot();
+    // Activity readout: only while a run is doing something SPECIFIC AND the
+    // slot holds no reply (PHASE-19: "tool calls are only shown when there is
+    // currently no reply to display"). The cap hint owns the center while up.
     const hint =
       this.ui.capReached && this.ui.recording === "paused"
         ? "message cap reached, double tap to send"
         : null;
     const activity =
       hint ??
-      (this.opts.store.state.agentRunning
+      (!this.slotReply && this.opts.store.state.agentRunning
         ? currentActivity(this.opts.store.state.messages)
         : null);
     this.opts.onUi?.(voicePhase(this.ui, this.ttsGlow, this.connecting), activity);
   }
+
+  /** Resolve the PHASE-19 slot and push it to the overlay. */
+  private emitSlot(): void {
+    const s = this.opts.store.state;
+    const liveIdx =
+      s.streamingMessage && s.streamingMessage.role === "assistant" ? s.messages.length : -1;
+    const view = slotView(this.slot, liveIdx);
+    if (view.kind === "activity") {
+      this.slotReply = false;
+      this.opts.onSlot?.(null, null);
+      return;
+    }
+    this.slotReply = true;
+    if (view.streaming) this.opts.onSlot?.(null, s.streamingMessage);
+    else this.opts.onSlot?.(s.messages[view.idx] ?? null, null);
+  }
+}
+
+/** Last completed assistant message of the current turn (never crosses a user
+ *  message) — the final response at run end. */
+function lastAssistantIdx(s: { messages: AgentMessage[] }): number {
+  for (let i = s.messages.length - 1; i >= 0; i--) {
+    const m = s.messages[i];
+    if (m.role === "assistant") return i;
+    if (m.role === "user") break;
+  }
+  return -1;
 }

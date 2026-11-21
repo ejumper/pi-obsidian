@@ -16,6 +16,9 @@ export { decideBanner, recoverAnnounced, stripVoiceBlocks, parseVoiceBlock } fro
 export type { VoiceMode, BannerAction } from "./views/voice/banner-state";
 export { reduceVoiceUi, voicePhase, initialVoiceUi } from "./views/voice/gesture-state";
 export type { VoiceUi, VoiceEvent, VoiceAction, VoiceGlowPhase } from "./views/voice/gesture-state";
+export { reduceSlot, slotView, initialSlotState } from "./views/voice/slot-state";
+export type { SlotState, SlotEvent, SlotView } from "./views/voice/slot-state";
+export { chunkCutAction } from "./views/voice/stt";
 export { parsePromptFile, wrapVoiceBlock, loadVoicePrompts } from "./views/voice/prompts";
 export { currentActivity, toolActivity } from "./views/voice/activity";
 export { ChunkCursor, chunkTextCuts, findChunk0End } from "./views/voice/speech-chunker";

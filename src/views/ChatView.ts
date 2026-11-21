@@ -268,6 +268,7 @@ export class ChatView extends ItemView {
           this.voiceOverlay?.setPhase(phase);
           this.voiceOverlay?.setActivity(activity);
         },
+        onSlot: (msg, streaming) => this.voiceOverlay?.setLastMessage(msg, streaming),
         onAmp: (amp) => this.voiceOverlay?.setAmp(amp),
         onNotice: (message) => {
           new Notice(`pi: ${message}`, 6000);
@@ -1092,10 +1093,8 @@ export class ChatView extends ItemView {
       },
     });
 
-    this.voiceOverlay?.setLastMessage(
-      [...s.messages].reverse().find((m) => m.role === "assistant") ?? null,
-      s.streamingMessage,
-    );
+    // PHASE-19: the voice slot is controller-driven (onSlot) — the transcript
+    // render no longer picks messages for the overlay.
 
     if (stick || sessionChanged || loadSettled) {
       requestAnimationFrame(() => {

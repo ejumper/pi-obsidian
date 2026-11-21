@@ -1,6 +1,6 @@
 # PHASE-19 — Voice display: one reply at a time (queue-driven slot)
 
-Status: planned. User spec 2026-11-19/20. Replaces `setLastMessage(msg, streaming)` —
+Status: done (0.5.28). User spec 2026-11-19/20. Replaces `setLastMessage(msg, streaming)` —
 today's overlay renders the last completed message AND the streaming tail at once
 (`computeTranscriptUnits`), which is exactly the "multiple replies on screen" bug
 (intermediate+final, or prev-final+next-final; self-corrects when the stream ends).

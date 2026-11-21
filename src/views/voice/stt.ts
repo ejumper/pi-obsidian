@@ -1,28 +1,68 @@
 /**
- * Voice-mode dictation recorder — getUserMedia + MediaRecorder with the
- * PHASE-18 silence/cap policy and multipart upload to an OpenAI-compatible
- * `/v1/audio/transcriptions` endpoint (verified live: stt.halfab.net returns
- * `{"text": "..."}`).
+ * Voice-mode dictation recorder (PHASE-18) — getUserMedia + Web Audio PCM
+ * capture with the chunk-on-silence transcription pipeline (§B) and the
+ * PHASE-18 recording policy.
  *
- * The timers NEVER auto-send (auto-send was retired): 30 s of silence pauses
- * (or discards an accidental start), the 15-min cap pauses absolutely.
+ * Capture is raw PCM through a ScriptProcessor tap (not MediaRecorder): the
+ * chunker needs sample-exact cuts — it cuts AT a silence onset, retroactively,
+ * so no speech is ever lost at a boundary — and each chunk is uploaded as a
+ * self-contained WAV (no container quirks: the iOS first-recording-empty
+ * MediaRecorder bug class is gone with it).
  *
- * Browser APIs only (getUserMedia, MediaRecorder, Web Audio, fetch) — no
- * Obsidian imports, no npm deps. The fetch error style mirrors tts.ts; each
- * file stays self-contained.
+ * Pipeline: blocks accumulate into the current chunk; the policy tick cuts
+ * chunks per `chunkCutAction` (silence ≥ 2.5 s after ≥ 20 s of audio, or the
+ * 60 s hard ceiling); each cut chunk transcribes SEQUENTIALLY while recording
+ * continues (bounded memory: audio is dropped once its text is confirmed).
+ * `stopAndSend` flushes the final chunk, waits for the queue, retries failures
+ * once more, and concatenates the partials — the model starts in seconds, not
+ * minutes. Chunks with no speech are never transcribed; a chunk that keeps
+ * failing LOUDLY fails the send (text is never silently lost).
+ *
+ * Policy timers NEVER auto-send (auto-send was retired): 30 s of silence
+ * pauses (or discards an accidental start), the 15-min cap pauses absolutely.
+ *
+ * Browser APIs only (getUserMedia, Web Audio, fetch) — no Obsidian imports,
+ * no npm deps. The fetch error style mirrors tts.ts; each file stays
+ * self-contained.
  */
 import { AudioAmp } from "./audio-amp";
 
-/** Mime negotiation order: first MediaRecorder.isTypeSupported hit wins; default if none. */
-const RECORDER_MIMES = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
 const SILENCE_RMS = 0.02;
 const SILENCE_WINDOW_MS = 30_000;
 const MAX_RECORDING_MS = 15 * 60_000;
 const CAP_WARNING_BEFORE_MS = 30_000;
 const WATCH_TICK_MS = 200;
-const STOP_WATCHDOG_MS = 5_000;
+/** Chunk-on-silence tuning (PHASE-18B — generous, not pseudo-streaming). */
+const CUT_SILENCE_MS = 2_500;
+const MIN_CHUNK_MS = 20_000;
+const MAX_CHUNK_MS = 60_000;
+const CHUNK_ATTEMPTS = 2;
 const STT_PATH = "/v1/audio/transcriptions";
 const STT_MODEL = "small.en";
+
+/**
+ * Chunk-cut policy (pure, tested): what to do with the current chunk.
+ * `gapMs` = length of the ONGOING silence run (0 while speech is flowing).
+ * "cut_silence" cuts AT the silence onset (retroactive — the silence carries
+ * over as the next chunk's lead-in); "cut_now" cuts at the live edge (only the
+ * 60 s ceiling mid-speech — lossless for PCM, a seam word may mangle).
+ */
+export function chunkCutAction(
+  curMs: number,
+  gapMs: number,
+  hasSpeech: boolean,
+): "none" | "cut_silence" | "cut_now" {
+  if (curMs >= MAX_CHUNK_MS) return gapMs > 0 ? "cut_silence" : "cut_now";
+  if (hasSpeech && gapMs >= CUT_SILENCE_MS && curMs >= MIN_CHUNK_MS) return "cut_silence";
+  return "none";
+}
+
+/** One cut chunk awaiting/holding its transcript. */
+interface PendingChunk {
+  samples: Float32Array;
+  text: string | null;
+  error: string | null;
+}
 
 export interface VoiceRecorderOptions {
   /** Base STT URL, e.g. https://stt.halfab.net (path appended if missing). */
@@ -43,55 +83,64 @@ export interface VoiceRecorderOptions {
 }
 
 export class VoiceRecorder {
+  // ── mic graph ───────────────────────────────────────────────────────────
   private stream: MediaStream | null = null;
-  private recorder: MediaRecorder | null = null;
-  private parts: Blob[] = [];
-  private mime = "";
-
   private audioCtx: AudioContext | null = null;
-  private analyser: AnalyserNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
-  private watchTimer: number | null = null;
-  private capTimer: number | null = null;
-  private capWarnTimer: number | null = null;
-  /** Remaining recording-time budget — pauses bank it (accumulated cap). */
-  private capLeft = MAX_RECORDING_MS;
-  private capArmedAt = 0;
+  private processor: ScriptProcessorNode | null = null;
+  private muteGain: GainNode | null = null;
+
+  /** off | on | paused — pause drops incoming blocks (audio preserved below). */
+  private recording: "off" | "on" | "paused" = "off";
+  private sampleRate = 48_000;
+
+  /** Mic amplitude envelope for the reactive glow (fed from the PCM tap). */
+  private amp: AudioAmp | null;
+
+  // ── current chunk accumulation ──────────────────────────────────────────
+  private parts: Float32Array[] = [];
+  private curSamples = 0;
+  private curHasSpeech = false;
+  /** Sample offset (within the current chunk) where the ongoing silence run
+   *  began — the retroactive cut point; null while speech flows. */
+  private curSilenceAt: number | null = null;
+  private speechRegistered = false;
   private silenceStart: number | null = null;
   private silenceFired = false;
-  /** Speech registered in the current recording (splits the silence outcome). */
-  private speechRegistered = false;
 
-  private discardOnStop = false;
-  private pendingStop: ((blob: Blob | null) => void) | null = null;
-  private stopWatchdog: number | null = null;
+  // ── transcription queue ─────────────────────────────────────────────────
+  private chunks: PendingChunk[] = [];
+  private pumpPromise: Promise<void> | null = null;
 
-  /** Mic amplitude envelope for the reactive glow (fed from the same analyser
-   *  the silence detector uses — no second tap). Gain 5: speech RMS lands 0..1. */
-  private amp: AudioAmp | null;
+  // ── recording-time budget (15-min accumulated cap) ──────────────────────
+  private capTimer: number | null = null;
+  private capWarnTimer: number | null = null;
+  private capLeft = MAX_RECORDING_MS;
+  private capArmedAt = 0;
+  private watchTimer: number | null = null;
 
   constructor(private readonly opts: VoiceRecorderOptions) {
     this.amp = opts.onAmp ? new AudioAmp({ onAmp: opts.onAmp, gain: 5 }) : null;
   }
 
+  // ── lifecycle ───────────────────────────────────────────────────────────
+
   /**
-   * Open the mic and start recording. MUST be called from within a user
-   * gesture: iOS WKWebView ties the getUserMedia permission prompt (and
-   * MediaRecorder's right to capture) to the gesture that requested it.
+   * Open the mic and start recording. MUST run inside a user gesture: iOS
+   * WKWebView ties getUserMedia permission to the requesting gesture.
    */
   async start(): Promise<void> {
-    if (this.recorder) {
-      // Defensive: leftovers from a previous session — drop them, start over.
-      this.discardOnStop = true;
-      await this.stopAndWait();
+    if (this.recording !== "off") {
+      this.discard(); // defensive: leftovers — drop them, start over
     }
-    this.cleanup();
-
-    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    if (
+      typeof AudioContext === "undefined" ||
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
       this.error("Microphone recording is not available in this context");
       return;
     }
-
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -99,71 +148,49 @@ export class VoiceRecorder {
       this.error(`Microphone unavailable: ${errText(err)}`);
       return;
     }
-
-    let chosen = "";
-    let recorder: MediaRecorder | null = null;
-    const wanted = pickMime();
-    if (wanted) {
-      try {
-        recorder = new MediaRecorder(stream, { mimeType: wanted });
-        chosen = wanted;
-      } catch {
-        recorder = null; // claimed supported but refused — fall back to default
-      }
+    let ctx: AudioContext;
+    try {
+      ctx = new AudioContext();
+      this.sampleRate = ctx.sampleRate;
+      const source = ctx.createMediaStreamSource(stream);
+      // 2048-sample mono tap. A ScriptProcessor must feed the destination to
+      // fire reliably (through a zero gain — nothing is monitored or echoed).
+      const processor = ctx.createScriptProcessor(2048, 1, 1);
+      const mute = ctx.createGain();
+      mute.gain.value = 0;
+      source.connect(processor);
+      processor.connect(mute);
+      mute.connect(ctx.destination);
+      processor.onaudioprocess = (e) => this.onAudio(e);
+      if (ctx.state === "suspended") await ctx.resume().catch(() => undefined);
+      this.stream = stream;
+      this.audioCtx = ctx;
+      this.source = source;
+      this.processor = processor;
+      this.muteGain = mute;
+    } catch (err) {
+      stopTracks(stream);
+      this.error(`Recorder unavailable: ${errText(err)}`);
+      return;
     }
-    if (!recorder) {
-      try {
-        recorder = new MediaRecorder(stream);
-        chosen = "";
-      } catch (err) {
-        this.error(`Recorder unavailable: ${errText(err)}`);
-        stopTracks(stream);
-        return;
-      }
-    }
-    const rec: MediaRecorder = recorder;
-
-    this.stream = stream;
-    this.recorder = rec;
+    // Fresh chunk + policy state for this recording.
     this.parts = [];
-    this.mime = rec.mimeType || chosen;
-    this.discardOnStop = false;
+    this.curSamples = 0;
+    this.curHasSpeech = false;
+    this.curSilenceAt = null;
+    this.speechRegistered = false;
     this.silenceFired = false;
     this.silenceStart = null;
-    this.speechRegistered = false;
     this.capLeft = MAX_RECORDING_MS;
-
-    // Every handler checks identity so a stale recorder's late events can
-    // never corrupt (or tear down) a newer session.
-    rec.ondataavailable = (ev) => {
-      if (this.recorder === rec && ev.data && ev.data.size > 0) this.parts.push(ev.data);
-    };
-    rec.onstop = () => this.handleStop(rec);
-    rec.onerror = (ev) => {
-      if (this.recorder === rec) this.error(`Recorder error: ${ev.message || "recording failed"}`);
-    };
-
-    try {
-      rec.start();
-    } catch (err) {
-      this.error(`Could not start recording: ${errText(err)}`);
-      this.cleanup();
-      return;
-    }
-
-    this.armWatches(stream);
+    this.recording = "on";
+    this.armCap();
+    this.watchTimer = setInterval(() => this.policyTick(), WATCH_TICK_MS);
   }
 
-  /** Pause recording; the silence watch skips (and restarts its window) while paused. */
+  /** Pause: audio preserved, policy/cap timers bank (tap resumes). */
   pause(): void {
-    const rec = this.recorder;
-    if (!rec || rec.state !== "recording") return;
-    try {
-      rec.pause();
-    } catch (err) {
-      this.error(`Pause failed: ${errText(err)}`);
-      return;
-    }
+    if (this.recording !== "on") return;
+    this.recording = "paused";
     this.silenceStart = null;
     this.bankCap();
     // Recording held → freeze the amp (the glow falls back to the CSS steady).
@@ -171,135 +198,192 @@ export class VoiceRecorder {
   }
 
   resume(): void {
-    const rec = this.recorder;
-    if (!rec || rec.state !== "paused") return;
-    try {
-      rec.resume();
-    } catch (err) {
-      this.error(`Resume failed: ${errText(err)}`);
-      return;
-    }
+    if (this.recording !== "paused") return;
+    this.recording = "on";
     // Fresh silence window per resume — 30 s of quiet pauses again.
     this.silenceFired = false;
     this.silenceStart = null;
     this.armCap();
   }
 
-  /** Stop and drop the partial recording; the object stays usable for the next start(). */
+  /** Stop and drop everything (partial chunks included); reusable after. */
   discard(): void {
-    const rec = this.recorder;
-    if (!rec) {
-      this.cleanup();
-      return;
-    }
-    this.discardOnStop = true;
-    if (rec.state === "inactive") {
-      this.handleStop(rec);
-      return;
-    }
-    try {
-      rec.stop();
-    } catch (err) {
-      this.error(`Could not stop the recorder: ${errText(err)}`);
-      this.settleStop(null);
-    }
+    this.stopCapture();
+    this.parts = [];
+    this.curSamples = 0;
+    this.curHasSpeech = false;
+    this.curSilenceAt = null;
+    this.chunks = [];
   }
 
   /**
-   * Stop the recorder, collect the final blob, and POST it as multipart form
-   * data (`file` + `model: "small.en"`) to `<url>/v1/audio/transcriptions`.
-   * Returns the transcript text. Fetch/HTTP/JSON failures report via onError
-   * AND reject, so the caller can't mistake them for an empty transcript.
+   * Stop the recorder, flush the final chunk, drain the transcription queue
+   * (one more retry pass for stragglers), and return the full transcript.
+   * The ONLY send path (PHASE-18: auto-send retired).
    */
-  /**
-   * Absorb WebKit's "first MediaRecorder recording is empty" quirk with a
-   * throwaway clip. Must run inside a user gesture (the panel tap qualifies).
-   */
-  async prime(): Promise<void> {
-    try {
-      await this.start();
-      await new Promise((r) => setTimeout(r, 250));
-      this.discard();
-    } catch {
-      // priming is best-effort — real recording still reports its own errors
-    }
-  }
-
   async stopAndSend(): Promise<string> {
-    const blob = await this.stopAndWait();
-    if (!blob || blob.size < 200) {
-      // WebKit's first-recording quirk yields an empty/tiny blob — say so instead
-      // of letting the server 500 on zero bytes. prime() absorbs it up front.
-      const msg =
-        "Recording came back empty (known iOS first-recording quirk) — hold once more and it will work";
+    this.stopCapture();
+    if (this.curHasSpeech && this.curSamples > 0) {
+      this.chunks.push({ samples: this.concatParts(), text: null, error: null });
+      this.parts = [];
+      this.curSamples = 0;
+      this.curHasSpeech = false;
+      this.curSilenceAt = null;
+    }
+    if (this.chunks.length === 0) {
+      const msg = "Nothing was recorded";
       this.error(msg);
       throw new Error(msg);
     }
+    // Drain: whatever is in flight finishes, then one retry pass for failures.
+    if (this.pumpPromise) await this.pumpPromise;
+    await this.transcribeLoop();
+    const failed = this.chunks.find((c) => c.text === null);
+    if (failed) {
+      const msg = `Transcription failed (${failed.error ?? "unknown error"}) — the recording was not sent`;
+      this.error(msg);
+      throw new Error(msg);
+    }
+    return this.chunks
+      .map((c) => c.text ?? "")
+      .filter((t) => t.length > 0)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
 
+  // ── PCM capture ─────────────────────────────────────────────────────────
+
+  private onAudio(e: AudioProcessingEvent): void {
+    if (this.recording !== "on") return; // paused/stopped: drop the block
+    if (e.inputBuffer.numberOfChannels < 1) return;
+    const input = e.inputBuffer.getChannelData(0);
+    const block = new Float32Array(input); // input buffers are reused — copy
+    let sum = 0;
+    for (let i = 0; i < block.length; i++) sum += block[i] * block[i];
+    const rms = Math.sqrt(sum / block.length);
+    this.amp?.feedSamples(block);
+    if (rms >= SILENCE_RMS) {
+      if (!this.speechRegistered) {
+        this.speechRegistered = true;
+        this.opts.onAudio?.();
+      }
+      this.curHasSpeech = true;
+      this.curSilenceAt = null;
+      this.silenceStart = null;
+    } else {
+      if (this.curSilenceAt === null) this.curSilenceAt = this.curSamples;
+      if (this.silenceStart === null) this.silenceStart = Date.now();
+    }
+    this.parts.push(block);
+    this.curSamples += block.length;
+  }
+
+  // ── policy tick (silence policy + chunk cuts) ───────────────────────────
+
+  private policyTick(): void {
+    if (this.recording !== "on") return;
+    // PHASE-18 policy: 30 s of silence pauses (speech registered) or discards
+    // (accidental start). Never sends.
+    if (this.silenceStart !== null && !this.silenceFired) {
+      if (Date.now() - this.silenceStart >= SILENCE_WINDOW_MS) {
+        this.silenceFired = true;
+        if (this.speechRegistered) this.opts.onSilencePause?.();
+        else this.opts.onSilenceDiscard?.();
+        return;
+      }
+    }
+    const gapMs =
+      this.curSilenceAt !== null
+        ? ((this.curSamples - this.curSilenceAt) / this.sampleRate) * 1000
+        : 0;
+    const curMs = (this.curSamples / this.sampleRate) * 1000;
+    const action = chunkCutAction(curMs, gapMs, this.curHasSpeech);
+    if (action === "cut_silence") this.cutChunk(this.curSilenceAt ?? this.curSamples);
+    else if (action === "cut_now") this.cutChunk(this.curSamples);
+  }
+
+  /**
+   * Cut the current chunk AT a sample offset. The remainder (always the
+   * silence run, or empty for a live-edge cut) carries over as the next
+   * chunk's lead-in — cuts never lose speech.
+   */
+  private cutChunk(at: number): void {
+    const total = this.curSamples;
+    const cut = Math.max(0, Math.min(at, total));
+    // takeSamples mutates this.parts in place — it is the remainder afterwards.
+    const taken = takeSamples(this.parts, cut);
+    if (taken.length > 0) {
+      this.chunks.push({ samples: taken, text: null, error: null });
+      this.startPump();
+    }
+    this.curSamples = total - cut;
+    this.curHasSpeech = false; // the remainder is the ongoing silence run
+    this.curSilenceAt = this.curSamples > 0 ? 0 : null;
+  }
+
+  /** Concatenate the pending blocks into one buffer. */
+  private concatParts(): Float32Array {
+    const out = new Float32Array(this.curSamples);
+    let off = 0;
+    for (const p of this.parts) {
+      out.set(p, off);
+      off += p.length;
+    }
+    return out;
+  }
+
+  // ── transcription queue ─────────────────────────────────────────────────
+
+  private startPump(): void {
+    if (this.pumpPromise) return;
+    this.pumpPromise = this.transcribeLoop().finally(() => {
+      this.pumpPromise = null;
+    });
+  }
+
+  /** Sequential, order-preserving transcription of un-transcribed chunks. */
+  private async transcribeLoop(): Promise<void> {
+    for (const chunk of this.chunks) {
+      if (chunk.text !== null) continue;
+      let lastErr = "unknown error";
+      for (let attempt = 0; attempt < CHUNK_ATTEMPTS; attempt++) {
+        try {
+          chunk.text = await this.upload(chunk.samples);
+          chunk.error = null;
+          lastErr = "";
+          break;
+        } catch (err) {
+          lastErr = errText(err);
+        }
+      }
+      if (chunk.text === null) chunk.error = lastErr;
+    }
+  }
+
+  private async upload(samples: Float32Array): Promise<string> {
     const form = new FormData();
-    form.append("file", blob, `recording.${fileExt(this.mime)}`);
+    form.append("file", encodeWav(samples, this.sampleRate), "recording.wav");
     form.append("model", STT_MODEL);
-
     const endpoint = this.opts.url.endsWith(STT_PATH)
       ? this.opts.url
       : `${this.opts.url.replace(/\/+$/, "")}${STT_PATH}`;
-    let res: Response;
-    try {
-      res = await request(endpoint, { method: "POST", body: form }, "Transcription failed");
-    } catch (err) {
-      this.error(errText(err));
-      throw err;
-    }
-
+    const res = await request(endpoint, { method: "POST", body: form }, "Transcription failed");
     let data: unknown;
     try {
       data = await res.json();
     } catch (err) {
-      const msg = `Transcription failed: invalid JSON in response (${errText(err)})`;
-      this.error(msg);
-      throw new Error(msg);
+      throw new Error(`Transcription failed: invalid JSON in response (${errText(err)})`);
     }
     const text = (data as { text?: unknown }).text;
     if (typeof text !== "string") {
-      const msg = "Transcription failed: response had no text field";
-      this.error(msg);
-      throw new Error(msg);
+      throw new Error("Transcription failed: response had no text field");
     }
     return text;
   }
 
-  // ── recording lifecycle ─────────────────────────────────────────────────
+  // ── cap budget (accumulated recording time) ─────────────────────────────
 
-  /** Silence watch (Web Audio RMS) + the 15-min accumulated hard cap. */
-  private armWatches(stream: MediaStream): void {
-    this.armCap();
-
-    // Analysis only — deliberately NOT connected to the destination, so
-    // nothing is monitored or fed back into the mic.
-    let ctx: AudioContext | null = null;
-    try {
-      ctx = new AudioContext();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
-      const source = ctx.createMediaStreamSource(stream);
-      source.connect(analyser);
-      if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
-      this.audioCtx = ctx;
-      this.analyser = analyser;
-      this.source = source;
-      const buf = new Float32Array(analyser.fftSize);
-      this.watchTimer = setInterval(() => this.watchTick(buf), WATCH_TICK_MS);
-    } catch (err) {
-      // No silence detection this session — the hard cap still applies.
-      if (ctx) void ctx.close().catch(() => undefined);
-      this.error(`Silence detection unavailable: ${errText(err)}`);
-    }
-  }
-
-  /**
-   * The 15-min cap is ACCUMULATED recording time: pauses bank the rest
-   * (armCap/bankCap). Fires the warning at 30 s remaining, then the cap.
-   */
   private armCap(): void {
     const warnIn = this.capLeft - CAP_WARNING_BEFORE_MS;
     if (warnIn > 0) {
@@ -319,7 +403,6 @@ export class VoiceRecorder {
     }, this.capLeft);
   }
 
-  /** Pause: stop the cap timers and bank the unspent budget. */
   private bankCap(): void {
     if (this.capTimer !== null) {
       this.capLeft = Math.max(1, this.capLeft - (Date.now() - this.capArmedAt));
@@ -332,92 +415,25 @@ export class VoiceRecorder {
     }
   }
 
-  private watchTick(buf: Float32Array<ArrayBuffer>): void {
-    const rec = this.recorder;
-    const analyser = this.analyser;
-    if (!rec || !analyser || rec.state !== "recording" || this.audioCtx?.state !== "running") {
-      // Paused (or stopped / suspended context, whose zeros would read as
-      // false silence): suspend the measurement so the 30 s window restarts
-      // from the next live tick.
-      this.silenceStart = null;
-      return;
-    }
-    analyser.getFloatTimeDomainData(buf);
-    this.amp?.feedSamples(buf);
-    let sum = 0;
-    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-    const rms = Math.sqrt(sum / buf.length);
-    if (rms >= SILENCE_RMS) {
-      if (!this.speechRegistered) {
-        this.speechRegistered = true;
-        this.opts.onAudio?.();
-      }
-      this.silenceStart = null;
-      return;
-    }
-    const now = Date.now();
-    if (this.silenceStart === null) {
-      this.silenceStart = now;
-      return;
-    }
-    if (now - this.silenceStart >= SILENCE_WINDOW_MS && !this.silenceFired) {
-      this.silenceFired = true;
-      if (this.speechRegistered) {
-        // Preserve the work: a regular pause (tap resumes). The recorder
-        // pauses through the reducer's action path.
-        this.opts.onSilencePause?.();
-      } else {
-        // Never spoke — accidental start: discard (the long-press equivalent).
-        this.stopSilenceWatch();
-        this.opts.onSilenceDiscard?.();
-      }
-    }
-  }
+  // ── teardown ────────────────────────────────────────────────────────────
 
-  /** Stop the recorder and resolve with the final blob (null when discarded or failed). */
-  private stopAndWait(): Promise<Blob | null> {
-    const rec = this.recorder;
-    if (!rec || rec.state === "inactive" || this.pendingStop !== null) return Promise.resolve(null);
-    return new Promise((resolve) => {
-      this.pendingStop = resolve;
-      // Watchdog: never hang the caller if the engine skips the final "stop" event.
-      this.stopWatchdog = setTimeout(() => {
-        this.stopWatchdog = null;
-        this.error("Recorder did not emit a final chunk; treating the recording as empty");
-        this.settleStop(null);
-      }, STOP_WATCHDOG_MS);
-      try {
-        rec.stop();
-      } catch (err) {
-        this.error(`Could not stop the recorder: ${errText(err)}`);
-        this.settleStop(null);
-      }
-    });
-  }
-
-  /** MediaRecorder "stop" handler: build the blob (unless discarding), settle, clean up. */
-  private handleStop(rec: MediaRecorder): void {
-    if (this.recorder !== rec) return; // stale recorder — a newer session owns the state
-    const type = rec.mimeType || this.mime || "application/octet-stream";
-    const blob = !this.discardOnStop && this.parts.length > 0 ? new Blob(this.parts, { type }) : null;
-    this.settleStop(blob);
-  }
-
-  private settleStop(blob: Blob | null): void {
-    if (this.stopWatchdog !== null) {
-      clearTimeout(this.stopWatchdog);
-      this.stopWatchdog = null;
+  private stopCapture(): void {
+    this.recording = "off";
+    if (this.watchTimer !== null) {
+      clearInterval(this.watchTimer);
+      this.watchTimer = null;
     }
-    const resolve = this.pendingStop;
-    this.pendingStop = null;
-    this.cleanup();
-    resolve?.(blob);
-  }
-
-  /** Release mic/stream/audio resources; leaves the object ready for start() again. */
-  private cleanup(): void {
+    this.bankCap();
     this.amp?.stop();
-    this.clearWatch();
+    if (this.processor) {
+      this.processor.onaudioprocess = null;
+      try {
+        this.processor.disconnect();
+      } catch {
+        // already detached
+      }
+      this.processor = null;
+    }
     if (this.source) {
       try {
         this.source.disconnect();
@@ -426,36 +442,21 @@ export class VoiceRecorder {
       }
       this.source = null;
     }
+    if (this.muteGain) {
+      try {
+        this.muteGain.disconnect();
+      } catch {
+        // already detached
+      }
+      this.muteGain = null;
+    }
     if (this.audioCtx) {
       void this.audioCtx.close().catch(() => undefined);
       this.audioCtx = null;
     }
-    this.analyser = null;
     if (this.stream) stopTracks(this.stream);
     this.stream = null;
-    this.recorder = null;
-    this.parts = [];
-    this.discardOnStop = false;
     this.silenceStart = null;
-  }
-
-  private clearWatch(): void {
-    this.stopSilenceWatch();
-    if (this.capTimer !== null) {
-      clearTimeout(this.capTimer);
-      this.capTimer = null;
-    }
-    if (this.capWarnTimer !== null) {
-      clearTimeout(this.capWarnTimer);
-      this.capWarnTimer = null;
-    }
-  }
-
-  private stopSilenceWatch(): void {
-    if (this.watchTimer !== null) {
-      clearInterval(this.watchTimer);
-      this.watchTimer = null;
-    }
   }
 
   private error(message: string): void {
@@ -464,6 +465,56 @@ export class VoiceRecorder {
 }
 
 // ── helpers (same style as tts.ts; each file self-contained) ──────────────
+
+/** Remove the first `n` samples from `parts` (returned concatenated); the
+ *  remainder stays in the array (assigned back by the caller). */
+function takeSamples(parts: Float32Array[], n: number): Float32Array {
+  const out = new Float32Array(n);
+  let need = n;
+  let off = 0;
+  while (need > 0 && parts.length > 0) {
+    const head = parts[0];
+    if (head.length <= need) {
+      out.set(head, off);
+      off += head.length;
+      need -= head.length;
+      parts.shift();
+    } else {
+      out.set(head.subarray(0, need), off);
+      parts[0] = head.subarray(need);
+      need = 0;
+    }
+  }
+  return out;
+}
+
+function encodeWav(samples: Float32Array, sampleRate: number): Blob {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buf);
+  const str = (off: number, s: string): void => {
+    for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
+  };
+  str(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  str(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -479,26 +530,6 @@ async function request(url: string, init: RequestInit, what: string): Promise<Re
   }
   if (!res.ok) throw new Error(`${what}: HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`);
   return res;
-}
-
-function pickMime(): string {
-  if (typeof MediaRecorder === "undefined") return "";
-  for (const mime of RECORDER_MIMES) {
-    try {
-      if (MediaRecorder.isTypeSupported(mime)) return mime;
-    } catch {
-      // Some engines throw from isTypeSupported — treat as unsupported.
-    }
-  }
-  return "";
-}
-
-/** Filename extension for the upload from the recorder mime, e.g. "audio/webm;…" → "webm". */
-function fileExt(mime: string): string {
-  const basic = mime.split(";")[0].trim();
-  const slash = basic.indexOf("/");
-  const subtype = slash >= 0 ? basic.slice(slash + 1) : "";
-  return subtype && subtype !== "octet-stream" ? subtype : "bin";
 }
 
 function stopTracks(stream: MediaStream): void {

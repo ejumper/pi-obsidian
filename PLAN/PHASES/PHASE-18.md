@@ -1,6 +1,6 @@
 # PHASE-18 — Voice recording lifecycle + chunked STT
 
-Status: §A done (0.5.27, with PHASE-17). §B (chunked STT) planned. User spec 2026-11-19/20. Replaces today's auto-send-on-silence and 5-min cap.
+Status: done (§A in 0.5.27, §B in 0.5.28). User spec 2026-11-19/20. Replaces today's auto-send-on-silence and 5-min cap.
 
 ## §A — Recording policy (auto-send is gone)
 

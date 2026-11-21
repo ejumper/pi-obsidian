@@ -28,6 +28,9 @@ export interface TtsPlayerOptions {
   onError?: (message: string) => void;
   /** Smoothed amplitude 0..1 while audio plays; null when it stops (glow hook). */
   onAmp?: (amp: number | null) => void;
+  /** An utterance's audio fully played out (or drained cache-only) — PHASE-19
+   *  slot advance. Fires once per utterance; replay passes never fire it. */
+  onUtteranceComplete?: (uttId: number) => void;
 }
 
 /** One FIFO entry: a single speakable chunk plus its synthesis/playback bookkeeping. */
@@ -127,9 +130,10 @@ export class TtsPlayer {
   /**
    * Start a new utterance (fresh cursor + id). Safe mid-playback: the FIFO is
    * global, so the previous message's audio keeps playing behind the new one's
-   * chunks as the two messages hand over.
+   * chunks as the two messages hand over. Returns the utterance id (PHASE-19:
+   * the controller tracks it for the display slot).
    */
-  beginUtterance(): void {
+  beginUtterance(): number {
     // Defensive: a left-open utterance (a missed endUtterance) would wedge the
     // busy predicate forever — close it first, tail included.
     if (this.openId !== null) this.endUtterance();
@@ -147,6 +151,7 @@ export class TtsPlayer {
     this.openId = id;
     // Deliberately no state refresh: zero dispatched chunks isn't busy — a
     // merely-begun utterance must still read as idle until its first cut lands.
+    return id;
   }
 
   /**
@@ -531,6 +536,7 @@ export class TtsPlayer {
     if (!utt || utt.open) return; // still streaming — more chunks may come
     if (this.queue.some((c) => c.uttId === uttId)) return; // unplayed chunks remain
     this.utterances.delete(uttId);
+    this.opts.onUtteranceComplete?.(uttId); // PHASE-19: slot advance
     // An utterance that never dispatched a chunk (empty message, aborted
     // begin) produced no playback — it must not REPLACE (and wipe) the cache.
     if (!utt.dispatched) return;
