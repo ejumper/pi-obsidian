@@ -1,6 +1,19 @@
 # PHASE-19 — Voice display: one reply at a time (queue-driven slot)
 
-Status: done (0.5.28). User spec 2026-11-19/20. Replaces `setLastMessage(msg, streaming)` —
+Status: done (0.5.28), then REWORKED as-built (0.5.30/0.5.31/0.5.32 device feedback).
+The as-built model differs from the original spec below: content is REPLACE-ON-ARRIVAL
+over one priority chain (read head > streaming reply > sticky activity phrase > last
+completed reply > nothing) — "always something on screen", tool-call/thinking phrases
+are STICKY through gaps, the final reply stays until a newer reply replaces it (no
+generation counters, no final-capture at run end — both raced). The speech queue is
+the only event state; everything else derives live from the store. Tail utterances
+are TEXT-tracked (the original messages.length sentinel drifted when entries appended
+mid-stream — split replies, stale-index black screens), slot entries carry idx -1
+until the reply lands (`utterance_landed` repairs by text match), and the landing
+resolver matches snapshots by extension (`replyTextMatches` — exact equality once
+re-begun a landed reply: the ancient double-read bug). See
+`Guides/Desktop/Programs/Pi-Obsidian/.Architecture/1_2-voice-mode.md` (Display slot)
+for the current behavior. User spec 2026-11-19/20. Replaces `setLastMessage(msg, streaming)` —
 today's overlay renders the last completed message AND the streaming tail at once
 (`computeTranscriptUnits`), which is exactly the "multiple replies on screen" bug
 (intermediate+final, or prev-final+next-final; self-corrects when the stream ends).
