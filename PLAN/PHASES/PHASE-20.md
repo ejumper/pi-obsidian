@@ -1,6 +1,8 @@
 # PHASE-20 — Voice-mode efficiency pass (heat)
 
-Status: planned. User report 2026-11-19: the phone gets hot during voice use; heat
+Status: done (0.5.29). Note: measurement hooks landed as `src/views/perf-sample.ts`
+(PerfSampler — fps + long-task window, summary logged on voice-mode toggle-off)
+rather than a telemetry module (that module no longer exists). User report 2026-11-19: the phone gets hot during voice use; heat
 **builds up over time**, tied to long recordings → long runs → long answers. Heat is
 the symptom; the fix is efficiency. (Verified non-suspects: TTS blob URLs are
 carefully revoked — no leak there.)

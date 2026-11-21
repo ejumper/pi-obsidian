@@ -231,3 +231,79 @@ export function computeTranscriptUnits(
   }
   return units;
 }
+
+// ---------- PHASE-20: render identity cache (heat pass) ----------
+//
+// MessageView is React.memo'd, but the memo is only as good as its props'
+// identities: a streaming tick changes ONLY streamingMessage, yet rebuilding
+// the units array every pass minted fresh wrappers (plain()/withBlocks()) and
+// fresh toolResults maps — so every message re-rendered on every delta and
+// per-delta work scaled with session length (the phone-heat report).
+// `createUnitsCache` reuses the SAME units while its inputs are unchanged —
+// then a delta re-renders one message: the streaming tail.
+
+import { stripMessageVoiceBlocks } from "./voice/banner-state";
+import type { CompactResultInfo } from "../state/agent-store";
+
+interface UnitsCacheEntry {
+  messages: AgentMessage[];
+  running: boolean;
+  entryIds: string[] | undefined;
+  compactResult: CompactResultInfo | null | undefined;
+  units: TranscriptUnit[];
+}
+
+/**
+ * Identity-stable transcript units: strip voice banners, apply the live
+ * compaction estimate to a tail compaction message (0.5.5 caret header),
+ * group — and REUSE the previous result while the inputs are reference-equal.
+ * One cache per ChatView instance (multi-tab safe); the returned function is
+ * pure from the caller's view.
+ */
+export function createUnitsCache(): (
+  messages: AgentMessage[],
+  running: boolean,
+  entryIds: string[] | undefined,
+  compactResult: CompactResultInfo | null | undefined,
+) => TranscriptUnit[] {
+  let entry: UnitsCacheEntry | null = null;
+  return (messages, running, entryIds, compactResult) => {
+    if (
+      entry !== null &&
+      entry.messages === messages &&
+      entry.running === running &&
+      entry.entryIds === entryIds &&
+      entry.compactResult === compactResult
+    ) {
+      return entry.units;
+    }
+    const stripped = messages.map((m, i) => {
+      const clean = stripMessageVoiceBlocks(m);
+      // Fresh compaction estimate rides on its message for the caret header
+      // (0.5.5): historical blocks fall back to tokensBefore only.
+      if (
+        i === messages.length - 1 &&
+        compactResult &&
+        clean.role === "custom" &&
+        (clean as CustomMessage).customType === "compaction"
+      ) {
+        return {
+          ...clean,
+          details: {
+            ...((clean as CustomMessage).details as Record<string, unknown> | undefined),
+            estimatedTokensAfter: compactResult.estimatedTokensAfter,
+          },
+        } as AgentMessage;
+      }
+      return clean;
+    });
+    entry = {
+      messages,
+      running,
+      entryIds,
+      compactResult,
+      units: computeTranscriptUnits(stripped, running, entryIds),
+    };
+    return entry.units;
+  };
+}

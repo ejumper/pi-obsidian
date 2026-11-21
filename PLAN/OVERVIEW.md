@@ -103,19 +103,19 @@ speaking the pi-web site's existing HTTP+SSE API over Tailscale.
       routes, 1:1 verbatim) into a pi-native daemon at `~/.pi/agent/bridge/` (rides the
       `ejumper/pi` sync). **A** prove parity at `/opt/pi-web` → **B** propagate to all pi
       installs → **C** retire pi-web deployments (archive codebase).
-- [ ] **Phase 17 — Voice input & glow** *(PHASE-17.md)*: gesture×glow reconciliation —
+- [x] **Phase 17 — Voice input & glow** *(PHASE-17.md)*: gesture×glow reconciliation —
       touch actions apply to the glow color (red=record / green=TTS / white=run / none=repeat),
       no follow-up recordings (record from idle only), long-press = destructive only
       (countdown retired), double-tap = finish-without-losing (send / TTS skip-to-cache).
       Full glow spec incl. red chaser (STT), red blink (cap warning), green static (paused).
-- [ ] **Phase 18 — Recording lifecycle + chunked STT** *(PHASE-18.md)*: auto-send is gone
+- [x] **Phase 18 — Recording lifecycle + chunked STT** *(PHASE-18.md)*: auto-send is gone
       (only double-tap sends); silence→pause (with audio) / discard (without); 15-min
       absolute cap + hint + warning blink; chunk-on-silence STT so long recordings stay
       bounded and the model starts in seconds.
-- [ ] **Phase 19 — Voice display queue** *(PHASE-19.md)*: one reply at a time — display
+- [x] **Phase 19 — Voice display queue** *(PHASE-19.md)*: one reply at a time — display
       follows TTS playback (queue overrides stream-in), intermediate clears on read/skip,
       final clears when the next run starts, tools fill the gaps.
-- [ ] **Phase 20 — Voice heat pass** *(PHASE-20.md)*: memoize message rendering, park the
+- [x] **Phase 20 — Voice heat pass** *(PHASE-20.md)*: memoize message rendering, park the
       hidden transcript during the overlay, throttle overlay text, suspend idle audio —
       measured before/after on the phone.
 - [x] **Phase 11 (E) — Multiple pi tabs** *(PHASE-11.md)*: N sessions in N tabs/splits with an

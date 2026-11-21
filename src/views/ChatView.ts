@@ -5,7 +5,8 @@ import { ItemView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidi
 import { AgentStore, type ThinkingLevelOption } from "../state/agent-store";
 import type { AgentMessage, AttachedImageInput, CustomMessage } from "../api/types";
 import type { SpeakController } from "./speak-context";
-import { computeTranscriptUnits } from "./message-display";
+import { createUnitsCache } from "./message-display";
+import { PerfSampler } from "./perf-sample";
 import { stripVoiceBlocks, stripMessageVoiceBlocks } from "./voice/banner-state";
 import { TranscriptRenderer } from "./react/Transcript";
 import { AttachmentStage } from "./composer/attachments";
@@ -199,6 +200,59 @@ export class ChatView extends ItemView {
     this.render();
   }
 
+  // ---- PHASE-20 (heat): stable identities. Inline arrows in the render
+  // update defeat MessageView's React.memo on every store tick — per-delta
+  // work then scales with session length (the phone-heat report). These live
+  // for the view's lifetime and re-read this.store at call time (rebind-safe).
+  private readonly unitsFor = createUnitsCache();
+  private readonly perf = new PerfSampler();
+  private transcriptStale = false;
+  private slotLastEmit = 0;
+  private slotTimer: number | null = null;
+  private slotPending: { msg: AgentMessage | null; streaming: AgentMessage | null } | null = null;
+
+  private readonly transcriptHandlers = {
+    onFork: async (entryId: string): Promise<string | null> => {
+      const store = this.store;
+      if (!store) return null;
+      const id = await store.fork(entryId);
+      if (id) void store.openSession(id);
+      return id;
+    },
+    onNavigate: (entryId: string): void => {
+      void this.store?.navigateTo(entryId);
+    },
+    onEditContent: (content: string): void => {
+      this.insertIntoComposer(stripVoiceBlocks(content));
+    },
+    // Fires after React commits — the only moment scrollHeight is real.
+    onRendered: (): void => {
+      if (Date.now() <= this.pinBottomUntil) {
+        this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
+      }
+    },
+  };
+
+  /** PHASE-20: overlay slot text at ~5/s — speech does not need per-frame
+   *  text and the phone needs the frames back. Leading + trailing edge. */
+  private emitSlotThrottled(
+    msg: AgentMessage | null,
+    streaming: AgentMessage | null,
+  ): void {
+    this.slotPending = { msg, streaming };
+    const now = Date.now();
+    const flush = () => {
+      this.slotTimer = null;
+      this.slotLastEmit = Date.now();
+      const pending = this.slotPending;
+      this.slotPending = null;
+      if (pending) this.voiceOverlay?.setLastMessage(pending.msg, pending.streaming);
+    };
+    if (now - this.slotLastEmit >= 200) flush();
+    else if (this.slotTimer === null)
+      this.slotTimer = setTimeout(flush, 200 - (now - this.slotLastEmit)) as unknown as number;
+  }
+
   /** Hands-free voice mode (PHASE-14): overlay covers the transcript, composer
    *  hides (CSS class, not inline — the keyboard inset code flips display), and
    *  the banner state machine keeps per-send announcements flowing. */
@@ -207,6 +261,15 @@ export class ChatView extends ItemView {
     this.voiceController?.setVoiceMode(on);
     this.voiceOverlay?.setVisible(on);
     this.composerEl?.toggleClass("pi-voice-hidden", on);
+    // PHASE-20 measurement: fps + long-task sampling runs while voice mode is
+    // up; the summary logs on toggle-off (Logstravaganza ships phone logs).
+    if (on) this.perf.start();
+    else console.debug("[pi-obsidian] voice perf:", JSON.stringify(this.perf.stop()));
+    // The hidden transcript skipped its renders — catch it up on hide.
+    if (!on && this.transcriptStale) {
+      this.transcriptStale = false;
+      this.render();
+    }
   }
 
   isVoiceMode(): boolean {
@@ -268,7 +331,7 @@ export class ChatView extends ItemView {
           this.voiceOverlay?.setPhase(phase);
           this.voiceOverlay?.setActivity(activity);
         },
-        onSlot: (msg, streaming) => this.voiceOverlay?.setLastMessage(msg, streaming),
+        onSlot: (msg, streaming) => this.emitSlotThrottled(msg, streaming),
         onAmp: (amp) => this.voiceOverlay?.setAmp(amp),
         onNotice: (message) => {
           new Notice(`pi: ${message}`, 6000);
@@ -1047,32 +1110,18 @@ export class ChatView extends ItemView {
     }
 
     // pi-web's MessageView components render the grouped units (see
-    // react/Transcript.tsx + views/message-display.ts).
+    // react/Transcript.tsx + views/message-display.ts). PHASE-20 (heat): the
+    // units come from the identity cache — a streaming tick reuses the same
+    // array so MessageView's memo skips every unchanged message (per-delta
+    // work stops scaling with session length) — and while the voice overlay
+    // covers the screen this render is skipped entirely (it catches up on
+    // hide; the data is all in the store).
+    if (this.voiceOn) {
+      this.transcriptStale = true;
+      return;
+    }
     this.transcript.update({
-      units: computeTranscriptUnits(
-        s.messages.map((m, i) => {
-          const stripped = stripMessageVoiceBlocks(m);
-          // Fresh compaction estimate rides on its message for the caret header
-          // (0.5.5): historical blocks fall back to tokensBefore only.
-          if (
-            i === s.messages.length - 1 &&
-            s.compactResult &&
-            stripped.role === "custom" &&
-            (stripped as CustomMessage).customType === "compaction"
-          ) {
-            return {
-              ...stripped,
-              details: {
-                ...((stripped as CustomMessage).details as Record<string, unknown> | undefined),
-                estimatedTokensAfter: s.compactResult.estimatedTokensAfter,
-              },
-            };
-          }
-          return stripped;
-        }),
-        s.agentRunning,
-        s.entryIds,
-      ),
+      units: this.unitsFor(s.messages, s.agentRunning, s.entryIds, s.compactResult),
       streaming: s.streamingMessage ? stripMessageVoiceBlocks(s.streamingMessage) : null,
       modelNames: this.modelNames,
       cwd: s.cwd,
@@ -1082,15 +1131,7 @@ export class ChatView extends ItemView {
       compactResult: s.compactResult,
       apiBase: this.plugin.getClient(this.instanceId).baseUrl,
       speak: this.speakController,
-      onFork: async (entryId: string) => { const id = await this.store.fork(entryId); if (id) void this.store.openSession(id); return id; },
-      onNavigate: (entryId: string) => { void this.store.navigateTo(entryId); },
-      onEditContent: (content: string) => this.insertIntoComposer(stripVoiceBlocks(content)),
-      onRendered: () => {
-        // Fires after React commits — the only moment scrollHeight is real.
-        if (Date.now() <= this.pinBottomUntil) {
-          this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
-        }
-      },
+      ...this.transcriptHandlers,
     });
 
     // PHASE-19: the voice slot is controller-driven (onSlot) — the transcript

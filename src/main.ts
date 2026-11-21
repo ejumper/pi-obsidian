@@ -19,7 +19,9 @@ export type { VoiceUi, VoiceEvent, VoiceAction, VoiceGlowPhase } from "./views/v
 export { reduceSlot, slotView, initialSlotState } from "./views/voice/slot-state";
 export type { SlotState, SlotEvent, SlotView } from "./views/voice/slot-state";
 export { chunkCutAction } from "./views/voice/stt";
+export { createUnitsCache, computeTranscriptUnits } from "./views/message-display";
 export { parsePromptFile, wrapVoiceBlock, loadVoicePrompts } from "./views/voice/prompts";
+export { stripMessageVoiceBlocks } from "./views/voice/banner-state";
 export { currentActivity, toolActivity } from "./views/voice/activity";
 export { ChunkCursor, chunkTextCuts, findChunk0End } from "./views/voice/speech-chunker";
 export type { SpeechChunk } from "./views/voice/speech-chunker";

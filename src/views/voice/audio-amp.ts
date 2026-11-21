@@ -43,6 +43,8 @@ export class AudioAmp {
   private el: HTMLAudioElement | null = null;
   /** True while the tap is actually emitting values (playback live). */
   private emitting = false;
+  /** rAF loop body (tapElement) — parked when no audio flows (PHASE-20). */
+  private tickLoop: (() => void) | null = null;
 
   constructor(private readonly opts: AudioAmpOptions) {}
 
@@ -75,8 +77,12 @@ export class AudioAmp {
       this.el = el;
       this.buf = new Uint8Array(analyser.fftSize);
       void ctx.resume();
-      const tick = () => {
-        this.raf = requestAnimationFrame(tick);
+      // PHASE-20 (heat): the measurement loop SUSPENDS whenever no audio is
+      // flowing — the old free-running rAF tick woke the CPU ~60/s forever
+      // after the tap (the tap itself stays permanent; only the loop parks).
+      // "playing" restarts it (also on unpause) and carries the backgrounding
+      // keep-alive that the loop used to do.
+      this.tickLoop = () => {
         if (!this.analyser || !this.buf || !this.el) return;
         // Backgrounding can suspend the context — and with it the element's
         // audio (it routes through the graph now). Keep it alive.
@@ -93,13 +99,20 @@ export class AudioAmp {
             this.lastT = 0;
             this.opts.onAmp(null);
           }
+          this.suspendLoop();
           return;
         }
         this.emitting = true;
         this.analyser.getByteTimeDomainData(this.buf as Uint8Array<ArrayBuffer>);
         this.push(rmsOf(this.buf));
+        this.raf = requestAnimationFrame(this.tickLoop);
       };
-      this.raf = requestAnimationFrame(tick);
+      const resume = () => {
+        if (this.ctx && this.ctx.state !== "running") void this.ctx.resume();
+        if (!this.raf && this.tickLoop) this.raf = requestAnimationFrame(this.tickLoop);
+      };
+      el.addEventListener("playing", resume);
+      this.raf = requestAnimationFrame(this.tickLoop);
     } catch {
       /* analysis is optional — the CSS breath is the fallback */
     }
@@ -119,10 +132,15 @@ export class AudioAmp {
     this.opts.onAmp(this.env);
   }
 
-  /** Stop feeding (the tap itself is permanent once created — cheap idle). */
-  stop(): void {
+  /** Park the measurement loop (the tap itself is permanent). */
+  private suspendLoop(): void {
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+  }
+
+  /** Stop feeding (the tap itself is permanent once created — cheap idle). */
+  stop(): void {
+    this.suspendLoop();
     this.emitting = false;
     this.env = 0;
     this.lastT = 0;

@@ -90,13 +90,37 @@ function computePrevAssistantEntryIds(units: TranscriptUnit[]): Map<TranscriptUn
   return prev;
 }
 
+/** PHASE-20 (heat): the per-render Maps are derived purely from the units
+ *  array — cache them per identity so a streaming tick's re-render of the
+ *  root does no O(session) work. */
+const showTsCache = new WeakMap<TranscriptUnit[], Map<TranscriptUnit, boolean>>();
+const prevCache = new WeakMap<TranscriptUnit[], Map<TranscriptUnit, string | undefined>>();
+
+function showTimestampsFor(units: TranscriptUnit[]): Map<TranscriptUnit, boolean> {
+  let cached = showTsCache.get(units);
+  if (!cached) {
+    cached = computeShowTimestamps(units);
+    showTsCache.set(units, cached);
+  }
+  return cached;
+}
+
+function prevAssistantFor(units: TranscriptUnit[]): Map<TranscriptUnit, string | undefined> {
+  let cached = prevCache.get(units);
+  if (!cached) {
+    cached = computePrevAssistantEntryIds(units);
+    prevCache.set(units, cached);
+  }
+  return cached;
+}
+
 function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError, compacting, compactResult }: TranscriptData) {
-  const showTs = computeShowTimestamps(units);
+  const showTs = showTimestampsFor(units);
   // No dep array: fires after every commit. A plain rAF scroll races React's
   // async commit on big session swaps (the transcript still held the old DOM
   // when the frame ran — sessions opened at the top).
   useLayoutEffect(() => { onRendered?.(); });
-  const prevAssistant = computePrevAssistantEntryIds(units);
+  const prevAssistant = prevAssistantFor(units);
   const [forkingKey, setForkingKey] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<string | null>(null);
 
