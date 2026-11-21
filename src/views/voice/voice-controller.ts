@@ -402,10 +402,7 @@ export class VoiceController {
       // Feed the tail utterance; close it once the reply lands (or the stream
       // moved on without landing it).
       if (this.utter) {
-        const ours =
-          tailLive &&
-          (tailText.startsWith(this.utter.tailText) ||
-            this.utter.tailText.startsWith(tailText));
+        const ours = tailLive && replyTextMatches(tailText, this.utter.tailText);
         if (ours) {
           if (tailText.length > 0) {
             this.tts.noteText(tailText);
@@ -414,8 +411,14 @@ export class VoiceController {
         } else {
           const uttId = this.utter.uttId;
           const li = lastAssistantIdx(s);
-          const landed =
-            li >= 0 && messageText(s.messages[li]) === this.utter.tailText;
+          const landedText = li >= 0 ? messageText(s.messages[li]) : "";
+          // The fed text can be one snapshot BEHIND the landed message (the
+          // feed may not tick between the last message_update and message_end)
+          // — match by extension, never by exact equality (0.5.31 exact match
+          // failed, the reply was re-begun and spoke TWICE: the ancient
+          // double-read bug, surfacing as a skip's "restart" when the queued
+          // duplicate began right after the first copy was stopped).
+          const landed = li >= 0 && replyTextMatches(this.utter.tailText, landedText);
           if (landed) {
             const id = s.entryIds[li];
             if (id) this.seenIds.add(id);
@@ -427,8 +430,9 @@ export class VoiceController {
             });
           } else {
             // Lost (late-guard drop / disk refresh) — retire the slot entry
-            // now; the drained audio's completion event becomes inert.
-            this.suppressIdx = -1;
+            // and SUPPRESS the text: the landed-scan must never re-speak it.
+            this.suppressIdx = li;
+            this.suppressText = this.utter.tailText;
             this.slot = reduceSlot(this.slot, {
               type: "utterance_complete",
               uttId,
@@ -526,6 +530,14 @@ export class VoiceController {
     else this.opts.onSlot?.(s.messages[view.idx] ?? null, null);
     return view;
   }
+}
+
+/** Two text snapshots of the same reply match when one extends the other —
+ *  cumulative streaming tails can be a snapshot behind the landed message
+ *  (the feed may not tick between the last message_update and message_end). */
+export function replyTextMatches(a: string, b: string): boolean {
+  if (a.length === 0 || b.length === 0) return false;
+  return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
 /** Last displayable assistant reply of the current turn (never crosses a

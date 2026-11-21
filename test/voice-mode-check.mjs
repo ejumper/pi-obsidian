@@ -42,6 +42,7 @@ const {
   slotView,
   initialSlotState,
   chunkCutAction,
+  replyTextMatches,
   currentActivity,
   toolActivity,
   ChunkCursor,
@@ -460,6 +461,16 @@ eq(
   eq(currentActivity(landed, null), null, "a resolved tool call is not current");
   eq(currentActivity(landed, thinkTail), "thinking", "the tail outranks landed history");
 }
+
+// --------------------- reply text matching (0.5.31 double-read fix)
+// The landing resolver must accept a snapshot one update behind the landed
+// message — exact equality failed and re-begun the reply (it spoke twice; a
+// skip then appeared to "restart" when the queued duplicate began).
+eq(replyTextMatches("hello there", "hello there"), true, "exact match");
+eq(replyTextMatches("hello", "hello there"), true, "stale snapshot is a prefix");
+eq(replyTextMatches("hello there", "hello"), true, "shrunken tail matches");
+eq(replyTextMatches("", "hello"), false, "empty never matches");
+eq(replyTextMatches("goodbye", "hello there"), false, "unrelated texts do not match");
 
 // ------------------------------------------- chunk-cut policy (PHASE-18B)
 
