@@ -127,6 +127,13 @@ export class TtsPlayer {
 
   // ── streaming feed ──────────────────────────────────────────────────────
 
+  /** Live pipeline state (0.5.30: the gesture layer reconciles against this
+   *  before every dispatch — stale playback flags caused a device bug where
+   *  double-tap started a recording over audible playback). */
+  get pipelineState(): TtsState {
+    return this.state;
+  }
+
   /**
    * Start a new utterance (fresh cursor + id). Safe mid-playback: the FIFO is
    * global, so the previous message's audio keeps playing behind the new one's

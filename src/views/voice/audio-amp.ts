@@ -82,7 +82,8 @@ export class AudioAmp {
       // after the tap (the tap itself stays permanent; only the loop parks).
       // "playing" restarts it (also on unpause) and carries the backgrounding
       // keep-alive that the loop used to do.
-      this.tickLoop = () => {
+      this.tickLoop = null;
+      const tick = (): void => {
         if (!this.analyser || !this.buf || !this.el) return;
         // Backgrounding can suspend the context — and with it the element's
         // audio (it routes through the graph now). Keep it alive.
@@ -105,14 +106,16 @@ export class AudioAmp {
         this.emitting = true;
         this.analyser.getByteTimeDomainData(this.buf as Uint8Array<ArrayBuffer>);
         this.push(rmsOf(this.buf));
-        this.raf = requestAnimationFrame(this.tickLoop);
+        this.raf = requestAnimationFrame(tick);
       };
+      this.tickLoop = tick;
       const resume = () => {
         if (this.ctx && this.ctx.state !== "running") void this.ctx.resume();
         if (!this.raf && this.tickLoop) this.raf = requestAnimationFrame(this.tickLoop);
       };
       el.addEventListener("playing", resume);
-      this.raf = requestAnimationFrame(this.tickLoop);
+      const loop = this.tickLoop;
+      if (loop) this.raf = requestAnimationFrame(loop);
     } catch {
       /* analysis is optional — the CSS breath is the fallback */
     }

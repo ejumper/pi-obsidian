@@ -27,7 +27,7 @@ import type { SpeakListener } from "../speak-context";
 import { VoiceSession } from "./voice-session";
 import { TtsPlayer } from "./tts";
 import { VoiceRecorder } from "./stt";
-import { initialSlotState, reduceSlot, slotView, type SlotState } from "./slot-state";
+import { initialSlotState, reduceSlot, slotView, type SlotState, type SlotView } from "./slot-state";
 
 export interface VoiceControllerOptions {
   store: AgentStore;
@@ -78,8 +78,10 @@ export class VoiceController {
   /** PHASE-19 display slot: pure state machine + uttId→message idx. */
   private slot: SlotState = initialSlotState;
   private uttIdx = new Map<number, number>();
-  /** Whether the slot currently holds a reply (gates the activity readout). */
-  private slotReply = false;
+  /** Sticky activity phrase (last tool call/thinking this run) — the display
+   *  never blanks between phrases (0.5.30 user spec: "always something on
+   *  screen"). Reset at run start; the previous final fills the gap. */
+  private stickyActivity: string | null = null;
   /** Utterance whose speech was stopped — never restart it. */
   private suppressIdx = -1;
   /** Read-aloud observers (the message Read button) + its active message id. */
@@ -209,6 +211,7 @@ export class VoiceController {
       this.recorder.discard();
       this.slot = reduceSlot(this.slot, { type: "flush" });
       this.uttIdx.clear();
+      this.stickyActivity = null;
       this.ui = { ...initialVoiceUi, runActive: this.ui.runActive };
       this.paint();
     }
@@ -269,6 +272,12 @@ export class VoiceController {
   // ---------------------------------------------------------------- internals
 
   private dispatch(ev: VoiceEvent): void {
+    // 0.5.30: reconcile with the LIVE TTS pipeline before reducing — the
+    // gesture map must never act on stale playback flags (device bug: a
+    // desynced "off" made double-tap start a recording over audible playback).
+    const st = this.tts.pipelineState;
+    const playback = st === "idle" ? "off" : st === "paused" ? "paused" : "on";
+    if (this.ui.playback !== playback) this.ui = { ...this.ui, playback };
     const { ui, action } = reduceVoiceUi(this.ui, ev);
     this.ui = ui;
     this.execute(action);
@@ -352,8 +361,9 @@ export class VoiceController {
         this.tts.endUtterance();
         this.utter = null;
       }
-      this.slot = reduceSlot(this.slot, { type: "session_reset" });
+      this.slot = reduceSlot(this.slot, { type: "flush" });
       this.uttIdx.clear();
+      this.stickyActivity = null;
     }
     this.session.noteContextTokens(s.contextUsage?.tokens ?? null);
 
@@ -361,12 +371,9 @@ export class VoiceController {
       this.lastRunning = s.agentRunning;
       if (s.agentRunning) {
         this.connecting = false;
-        this.slot = reduceSlot(this.slot, { type: "run_started" });
-      } else {
-        this.slot = reduceSlot(this.slot, {
-          type: "run_ended",
-          finalIdx: lastAssistantIdx(s),
-        });
+        // Fresh run: the phrase slot starts empty (the previous final reply
+        // fills the gap until the first tool call/thinking phrase arrives).
+        this.stickyActivity = null;
       }
       this.ui = reduceVoiceUi(this.ui, s.agentRunning ? "run_started" : "run_ended").ui;
     }
@@ -431,36 +438,43 @@ export class VoiceController {
   }
 
   private paint(): void {
-    this.emitSlot();
-    // Activity readout: only while a run is doing something SPECIFIC AND the
-    // slot holds no reply (PHASE-19: "tool calls are only shown when there is
-    // currently no reply to display"). The cap hint owns the center while up.
+    const view = this.emitSlot();
+    // Activity readout: only while the slot holds no reply ("tool calls are
+    // only shown when there is currently no reply to display"), and then the
+    // STICKY phrase — the display never blanks between phrases. The cap hint
+    // owns the center while it is up.
     const hint =
       this.ui.capReached && this.ui.recording === "paused"
         ? "message cap reached, double tap to send"
         : null;
     const activity =
       hint ??
-      (!this.slotReply && this.opts.store.state.agentRunning
-        ? currentActivity(this.opts.store.state.messages)
+      (view.kind === "activity" && this.opts.store.state.agentRunning
+        ? this.stickyActivity
         : null);
     this.opts.onUi?.(voicePhase(this.ui, this.ttsGlow, this.connecting), activity);
   }
 
-  /** Resolve the PHASE-19 slot and push it to the overlay. */
-  private emitSlot(): void {
+  /** Resolve the display slot (0.5.30 replace-on-arrival model) and push it. */
+  private emitSlot(): SlotView {
     const s = this.opts.store.state;
     const liveIdx =
       s.streamingMessage && s.streamingMessage.role === "assistant" ? s.messages.length : -1;
-    const view = slotView(this.slot, liveIdx);
+    const activity = currentActivity(s.messages);
+    if (s.agentRunning && activity !== null) this.stickyActivity = activity;
+    const view = slotView(this.slot, {
+      liveIdx,
+      running: s.agentRunning,
+      activity: this.stickyActivity,
+      lastAssistantIdx: lastAssistantIdx(s),
+    });
     if (view.kind === "activity") {
-      this.slotReply = false;
       this.opts.onSlot?.(null, null);
-      return;
+      return view;
     }
-    this.slotReply = true;
     if (view.streaming) this.opts.onSlot?.(null, s.streamingMessage);
     else this.opts.onSlot?.(s.messages[view.idx] ?? null, null);
+    return view;
   }
 }
 

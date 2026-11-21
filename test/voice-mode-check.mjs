@@ -325,71 +325,115 @@ eq(voicePhase({ ...initialVoiceUi, runActive: true }, "off"), "working",
 eq(voicePhase({ ...initialVoiceUi, recording: "on", runActive: true }, "playing"),
   "recording", "phase: recording still beats everything");
 
-// ---------------------------------------------- display slot (PHASE-19 scenarios)
+// ---------------------------------------------- display slot (0.5.30 model)
+// Replace-on-arrival: read head > streaming reply > sticky activity > last
+// reply > nothing. "Always something on screen" — content stays until replaced.
 
 const sev = (state, ev) => reduceSlot(state, ev);
+const ctx = (over = {}) => ({
+  liveIdx: -1,
+  running: false,
+  activity: null,
+  lastAssistantIdx: -1,
+  ...over,
+});
 let sl = initialSlotState;
 
-// stream-in rule: a fresh response shows the moment text starts flowing
-let v = slotView(sl, 5);
-eq(v, { kind: "message", idx: 5, streaming: true }, "stream-in: tail shows live");
-eq(slotView(sl, -1), { kind: "activity" }, "nothing anywhere: activity");
+// priority 5/4 — nothing vs the last reply (the final-reply rule)
+eq(slotView(sl, ctx()), { kind: "activity" }, "fresh session: nothing to show");
+eq(
+  slotView(sl, ctx({ lastAssistantIdx: 7 })),
+  { kind: "message", idx: 7, streaming: false },
+  "final reply on screen",
+);
 
-// speech queue: the display follows playback — later replies wait their turn
+// priority 2 — a streaming reply takes over immediately
+eq(
+  slotView(sl, ctx({ liveIdx: 8, lastAssistantIdx: 7 })),
+  { kind: "message", idx: 8, streaming: true },
+  "stream-in replaces the final",
+);
+
+// priority 3 — activity shows while running (and the gap is never blank)
+eq(
+  slotView(sl, ctx({ running: true, activity: "thinking", lastAssistantIdx: 7 })),
+  { kind: "activity" },
+  "activity shows over the final mid-run",
+);
+eq(
+  slotView(sl, ctx({ running: false, activity: "thinking", lastAssistantIdx: 7 })),
+  { kind: "message", idx: 7, streaming: false },
+  "a stale phrase never out-ranks the last reply after the run",
+);
+eq(
+  slotView(sl, ctx({ running: true, activity: null, lastAssistantIdx: 7 })),
+  { kind: "message", idx: 7, streaming: false },
+  "gap before the first phrase: the final fills it (never blank)",
+);
+eq(
+  slotView(sl, ctx({ running: true, activity: "thinking" })),
+  { kind: "activity" },
+  "first run with no replies yet: activity shows",
+);
+
+// priority 1 — the read head wins over everything
 sl = sev(sl, { type: "utterance_begun", uttId: 1, idx: 3 });
+eq(
+  slotView(sl, ctx({ running: true, activity: "bashing", liveIdx: 9, lastAssistantIdx: 2 })),
+  { kind: "message", idx: 3, streaming: false },
+  "being read wins over activity and the stream",
+);
 sl = sev(sl, { type: "utterance_begun", uttId: 2, idx: 5 });
-v = slotView(sl, 5);
-eq(v, { kind: "message", idx: 3, streaming: false }, "queue: the read head wins over the streaming tail");
-
-// mid-generation arrival at the queue top shows live
+eq(
+  slotView(sl, ctx({ liveIdx: 5 })),
+  { kind: "message", idx: 3, streaming: false },
+  "queued replies wait their turn",
+);
 sl = sev(sl, { type: "utterance_complete", uttId: 1 });
-v = slotView(sl, 5);
-eq(v, { kind: "message", idx: 5, streaming: true }, "queue top mid-generation displays streaming in");
+eq(
+  slotView(sl, ctx({ liveIdx: 5 })),
+  { kind: "message", idx: 5, streaming: true },
+  "queue top mid-generation displays streaming in",
+);
 
-// intermediate read -> cleared -> activity when nothing follows
+// read completion falls back in order — never blank
 sl = sev(sl, { type: "utterance_complete", uttId: 2 });
-eq(slotView(sl, -1), { kind: "activity" }, "intermediate clears on read: tools/thinking show");
-eq(slotView(sl, 5), { kind: "activity" }, "a cleared response is never re-shown");
+eq(
+  slotView(sl, ctx({ running: true, activity: "bashing" })),
+  { kind: "activity" },
+  "intermediate read done: the current action shows",
+);
+eq(
+  slotView(sl, ctx({ lastAssistantIdx: 5 })),
+  { kind: "message", idx: 5, streaming: false },
+  "nothing else around: the reply stays on screen",
+);
 
-// run lifecycle: the final is sticky within its run, gone when the next starts
-sl = sev(sl, { type: "run_ended", finalIdx: 7 });
-eq(slotView(sl, -1), { kind: "message", idx: 7, streaming: false }, "final stays on screen after the run");
-sl = sev(sl, { type: "run_started" });
-eq(slotView(sl, -1), { kind: "activity" }, "final clears when the next run starts");
-eq(slotView(sl, 8), { kind: "message", idx: 8, streaming: true }, "the new run's reply streams in");
+// a stopped final (skip counts as read) stays for tap-to-repeat
+sl = sev(sl, { type: "utterance_begun", uttId: 3, idx: 7 });
+sl = sev(sl, { type: "utterance_complete", uttId: 3 });
+eq(
+  slotView(sl, ctx({ lastAssistantIdx: 7 })),
+  { kind: "message", idx: 7, streaming: false },
+  "stopped final stays on screen",
+);
 
-// carve-out: a final still being read when the next run starts clears on completion
-sl = initialSlotState;
-sl = sev(sl, { type: "run_ended", finalIdx: 4 });
-sl = sev(sl, { type: "utterance_begun", uttId: 9, idx: 4 }); // read begins late
-sl = sev(sl, { type: "run_started" }); // next run while still reading
-v = slotView(sl, -1);
-eq(v, { kind: "message", idx: 4, streaming: false }, "being read wins over the run-start clear");
-sl = sev(sl, { type: "utterance_complete", uttId: 9 });
-eq(slotView(sl, -1), { kind: "activity" }, "the mid-read final advances when its read completes");
-
-// skip semantics: completing (skipping) the head advances to the next reply
-sl = initialSlotState;
-sl = sev(sl, { type: "utterance_begun", uttId: 1, idx: 1 });
-sl = sev(sl, { type: "utterance_begun", uttId: 2, idx: 2 });
-sl = sev(sl, { type: "utterance_complete", uttId: 1 }); // skip counts as finished
-eq(slotView(sl, -1), { kind: "message", idx: 2, streaming: false }, "skip: the next queued reply takes over");
-
-// flush (stop run / voice off): queued speech is gone, sticky final survives
+// flush (stop run / voice off): the queue drops, the last reply remains
+sl = sev(sl, { type: "utterance_begun", uttId: 4, idx: 9 });
 sl = sev(sl, { type: "flush" });
-eq(slotView(sl, -1), { kind: "activity" }, "flush drops the queue");
-sl = sev(sl, { type: "run_ended", finalIdx: 3 });
-sl = sev(sl, { type: "utterance_begun", uttId: 4, idx: 3 });
-sl = sev(sl, { type: "flush" });
-eq(slotView(sl, -1), { kind: "message", idx: 3, streaming: false }, "flush keeps the sticky final (tap-to-repeat)");
+eq(
+  slotView(sl, ctx({ lastAssistantIdx: 7 })),
+  { kind: "message", idx: 7, streaming: false },
+  "flush drops the queue but keeps the last reply",
+);
 
-// unknown utterances (normal-mode read-aloud) never disturb the slot
+// unknown utterance completions are inert
 sl = sev(sl, { type: "utterance_complete", uttId: 999 });
-eq(slotView(sl, -1), { kind: "message", idx: 3, streaming: false }, "unknown completion is inert");
-
-// session reset clears the story
-sl = sev(sl, { type: "session_reset" });
-eq(slotView(sl, -1), { kind: "activity" }, "session reset: activity");
+eq(
+  slotView(sl, ctx({ lastAssistantIdx: 7 })),
+  { kind: "message", idx: 7, streaming: false },
+  "unknown completion is inert",
+);
 
 // ------------------------------------------- chunk-cut policy (PHASE-18B)
 
