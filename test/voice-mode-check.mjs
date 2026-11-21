@@ -325,13 +325,14 @@ eq(voicePhase({ ...initialVoiceUi, runActive: true }, "off"), "working",
 eq(voicePhase({ ...initialVoiceUi, recording: "on", runActive: true }, "playing"),
   "recording", "phase: recording still beats everything");
 
-// ---------------------------------------------- display slot (0.5.30 model)
+// ---------------------------------------------- display slot (0.5.31 model)
 // Replace-on-arrival: read head > streaming reply > sticky activity > last
-// reply > nothing. "Always something on screen" — content stays until replaced.
+// reply > nothing. Tail entries carry idx -1 until they LAND (index drift on
+// the old messages.length sentinel split replies mid-message).
 
 const sev = (state, ev) => reduceSlot(state, ev);
 const ctx = (over = {}) => ({
-  liveIdx: -1,
+  tailStreaming: false,
   running: false,
   activity: null,
   lastAssistantIdx: -1,
@@ -349,8 +350,8 @@ eq(
 
 // priority 2 — a streaming reply takes over immediately
 eq(
-  slotView(sl, ctx({ liveIdx: 8, lastAssistantIdx: 7 })),
-  { kind: "message", idx: 8, streaming: true },
+  slotView(sl, ctx({ tailStreaming: true, lastAssistantIdx: 7 })),
+  { kind: "message", idx: -1, streaming: true },
   "stream-in replaces the final",
 );
 
@@ -370,29 +371,40 @@ eq(
   { kind: "message", idx: 7, streaming: false },
   "gap before the first phrase: the final fills it (never blank)",
 );
+
+// priority 1 — the read head wins; idx -1 = the streaming tail, live
+sl = sev(sl, { type: "utterance_begun", uttId: 1, idx: -1 });
 eq(
-  slotView(sl, ctx({ running: true, activity: "thinking" })),
-  { kind: "activity" },
-  "first run with no replies yet: activity shows",
+  slotView(sl, ctx({ tailStreaming: true, running: true, activity: "thinking", lastAssistantIdx: 2 })),
+  { kind: "message", idx: -1, streaming: true },
+  "being read wins over everything; the tail displays live",
 );
 
-// priority 1 — the read head wins over everything
-sl = sev(sl, { type: "utterance_begun", uttId: 1, idx: 3 });
+// the tail landing repairs the entry's index (the drift fix)
+sl = sev(sl, { type: "utterance_landed", uttId: 1, idx: 4 });
 eq(
-  slotView(sl, ctx({ running: true, activity: "bashing", liveIdx: 9, lastAssistantIdx: 2 })),
-  { kind: "message", idx: 3, streaming: false },
-  "being read wins over activity and the stream",
+  slotView(sl, ctx({ lastAssistantIdx: 4 })),
+  { kind: "message", idx: 4, streaming: false },
+  "utterance_landed repairs the display to the landed reply",
 );
-sl = sev(sl, { type: "utterance_begun", uttId: 2, idx: 5 });
+sl = sev(sl, { type: "utterance_landed", uttId: 999, idx: 8 });
 eq(
-  slotView(sl, ctx({ liveIdx: 5 })),
-  { kind: "message", idx: 3, streaming: false },
-  "queued replies wait their turn",
+  slotView(sl, ctx({ lastAssistantIdx: 4 })),
+  { kind: "message", idx: 4, streaming: false },
+  "unknown utterance_landed is inert",
+);
+
+// queued replies wait their turn
+sl = sev(sl, { type: "utterance_begun", uttId: 2, idx: -1 });
+eq(
+  slotView(sl, ctx({ tailStreaming: true })),
+  { kind: "message", idx: 4, streaming: false },
+  "a new tail queues behind the reply being read",
 );
 sl = sev(sl, { type: "utterance_complete", uttId: 1 });
 eq(
-  slotView(sl, ctx({ liveIdx: 5 })),
-  { kind: "message", idx: 5, streaming: true },
+  slotView(sl, ctx({ tailStreaming: true })),
+  { kind: "message", idx: -1, streaming: true },
   "queue top mid-generation displays streaming in",
 );
 
@@ -419,7 +431,7 @@ eq(
 );
 
 // flush (stop run / voice off): the queue drops, the last reply remains
-sl = sev(sl, { type: "utterance_begun", uttId: 4, idx: 9 });
+sl = sev(sl, { type: "utterance_begun", uttId: 4, idx: -1 });
 sl = sev(sl, { type: "flush" });
 eq(
   slotView(sl, ctx({ lastAssistantIdx: 7 })),
@@ -434,6 +446,20 @@ eq(
   { kind: "message", idx: 7, streaming: false },
   "unknown completion is inert",
 );
+
+// ------------------------- activity phrases from the streaming tail (0.5.31)
+// The store keeps the in-flight message out of messages[] — phrases whose
+// blocks live in the tail were structurally invisible before this.
+{
+  const thinkTail = { role: "assistant", content: [think()], model: "m", provider: "p" };
+  eq(currentActivity([], thinkTail), "thinking", "thinking shows from the streaming tail");
+  const callTail = { role: "assistant", content: [call("t9", "web_search")], model: "m", provider: "p" };
+  eq(currentActivity([], callTail), "searching the web", "live tool call shows from the streaming tail");
+  eq(currentActivity([], null), null, "no tail, no messages: nothing");
+  const landed = [user("go"), asst([call("t9", "bash")]), result("t9")];
+  eq(currentActivity(landed, null), null, "a resolved tool call is not current");
+  eq(currentActivity(landed, thinkTail), "thinking", "the tail outranks landed history");
+}
 
 // ------------------------------------------- chunk-cut policy (PHASE-18B)
 

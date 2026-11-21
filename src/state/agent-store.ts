@@ -918,8 +918,15 @@ export class AgentStore {
       }
 
       case "message_end": {
-        if (!this.state.agentRunning && !this.state.live) break;
+        // Late-event guard (0.5.31 refined): streaming events after the run
+        // finished are dropped (they would resurrect ghost bubbles after a
+        // reconcile) — but a COMMITTED reply is no ghost; dropping it lost
+        // finals "the moment they finished coming in" until the next disk
+        // refresh. User echoes stay guarded; a content dedupe absorbs the
+        // reconcile duplicate.
+        const late = !this.state.agentRunning && !this.state.live;
         const completed = (ev as { message?: AgentMessage }).message;
+        if (late && (!completed || completed.role === "user")) break;
         if (!completed || completed.role === "system") break; // pi 1.3 section delta — never render
 
         if (this.state.live) {
@@ -954,6 +961,17 @@ export class AgentStore {
             this.update({ messages: [...prev, delivered], streamingMessage: null });
           }
         } else {
+          if (late) {
+            const last = this.state.messages[this.state.messages.length - 1];
+            if (
+              last &&
+              last.role === completed.role &&
+              JSON.stringify(last.content ?? null) ===
+                JSON.stringify(completed.content ?? null)
+            ) {
+              break; // already landed via the disk refresh — no duplicate
+            }
+          }
           this.update({
             messages: [...this.state.messages, delivered],
             streamingMessage: null,

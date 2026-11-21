@@ -73,8 +73,9 @@ export class VoiceController {
   private connecting = false;
   /** TTS pipeline state for the glow (green breath > green chase > white). */
   private ttsGlow: TtsGlow = "off";
-  /** The utterance being streamed to TTS (message index + TTS id). */
-  private utter: { idx: number; uttId: number } | null = null;
+  /** The utterance being streamed to TTS (tail-only; landed replies speak
+   *  and close in one go). tailText = the last text fed, for land-matching. */
+  private utter: { uttId: number; tailText: string } | null = null;
   /** PHASE-19 display slot: pure state machine + uttId→message idx. */
   private slot: SlotState = initialSlotState;
   private uttIdx = new Map<number, number>();
@@ -82,8 +83,12 @@ export class VoiceController {
    *  never blanks between phrases (0.5.30 user spec: "always something on
    *  screen"). Reset at run start; the previous final fills the gap. */
   private stickyActivity: string | null = null;
-  /** Utterance whose speech was stopped — never restart it. */
+  /** Utterance whose speech was stopped — never restart it (index of a
+   *  landed reply; -1 = none). */
   private suppressIdx = -1;
+  /** Aborted TAIL text — the reply it belonged to must never be spoken
+   *  (its index is unknowable while streaming, so suppress by text). */
+  private suppressText: string | null = null;
   /** Read-aloud observers (the message Read button) + its active message id. */
   private speakListeners = new Set<SpeakListener>();
   private speakId: string | null = null;
@@ -204,7 +209,7 @@ export class VoiceController {
     } else {
       this.connecting = false;
       if (this.utter) {
-        this.suppressIdx = this.utter.idx;
+        this.suppressText = this.utter.tailText;
         this.utter = null;
       }
       this.tts.stopAndFlush();
@@ -251,7 +256,7 @@ export class VoiceController {
     // "stopped means stopped": drop pending speech and never restart the
     // cancelled utterance — the aborted tail must not be spoken.
     if (this.utter) {
-      this.suppressIdx = this.utter.idx;
+      this.suppressText = this.utter.tailText;
       this.utter = null;
     }
     this.tts.stopAndFlush();
@@ -379,55 +384,89 @@ export class VoiceController {
     }
 
     if (this.mode === "voice") {
-      // ---- streaming TTS: one utterance per assistant message, fed
-      // incrementally (the tail's text speaks mid-run; a completed message is
-      // fed whole). Complete = a later entry exists (toolResult included) or
-      // the run ended — that flushes the tail.
+      // ---- streaming TTS (0.5.31): one utterance per assistant reply, fed
+      // incrementally while it is the streaming tail. A tail utterance is
+      // tracked by TEXT, never by index — entries can append mid-stream
+      // (staggered parallel tool results) and the old messages.length
+      // sentinel drifted, splitting replies mid-message and blanking the
+      // display. The slot entry carries idx -1 until the reply LANDS; the
+      // index is then repaired via utterance_landed (found by text match —
+      // landed entries have stable indices, the store only appends).
+      let tailText = "";
+      let tailLive = false;
+      if (s.streamingMessage && s.streamingMessage.role === "assistant") {
+        tailText = messageText(s.streamingMessage);
+        tailLive = true;
+      }
+
+      // Feed the tail utterance; close it once the reply lands (or the stream
+      // moved on without landing it).
       if (this.utter) {
-        const complete =
-          s.messages.length - 1 > this.utter.idx || !s.agentRunning;
-        if (complete) {
-          const done = s.messages[this.utter.idx];
-          if (done && done.role === "assistant") this.tts.noteText(messageText(done));
-          const id = s.entryIds[this.utter.idx];
-          if (id) this.seenIds.add(id);
-          this.suppressIdx = this.utter.idx; // never re-begin a flushed message
+        const ours =
+          tailLive &&
+          (tailText.startsWith(this.utter.tailText) ||
+            this.utter.tailText.startsWith(tailText));
+        if (ours) {
+          if (tailText.length > 0) {
+            this.tts.noteText(tailText);
+            this.utter.tailText = tailText;
+          }
+        } else {
+          const uttId = this.utter.uttId;
+          const li = lastAssistantIdx(s);
+          const landed =
+            li >= 0 && messageText(s.messages[li]) === this.utter.tailText;
+          if (landed) {
+            const id = s.entryIds[li];
+            if (id) this.seenIds.add(id);
+            this.suppressIdx = li;
+            this.slot = reduceSlot(this.slot, {
+              type: "utterance_landed",
+              uttId,
+              idx: li,
+            });
+          } else {
+            // Lost (late-guard drop / disk refresh) — retire the slot entry
+            // now; the drained audio's completion event becomes inert.
+            this.suppressIdx = -1;
+            this.slot = reduceSlot(this.slot, {
+              type: "utterance_complete",
+              uttId,
+            });
+          }
           this.utter = null;
           this.tts.endUtterance();
         }
       }
 
-      // Live turn: the streaming tail while it grows — its message lands at
-      // messages.length on message_end (index-continuous) — else the last
-      // completed assistant message, never crossing a user message.
-      let liveIdx = -1;
-      let liveText = "";
-      if (s.streamingMessage && s.streamingMessage.role === "assistant") {
-        liveIdx = s.messages.length;
-        liveText = messageText(s.streamingMessage);
-      } else {
+      // Begin the next utterance: the streaming tail (fed per tick above),
+      // else a landed reply that was never spoken — its text is complete, so
+      // it speaks and closes in one go.
+      if (!this.utter && tailLive && tailText.length > 0 && !this.suppressedTail(tailText)) {
+        const uttId = this.tts.beginUtterance();
+        this.utter = { uttId, tailText };
+        this.uttIdx.set(uttId, -1);
+        this.slot = reduceSlot(this.slot, { type: "utterance_begun", uttId, idx: -1 });
+        this.tts.noteText(tailText);
+        this.utter.tailText = tailText;
+      } else if (!this.utter && !tailLive) {
         for (let i = s.messages.length - 1; i >= 0; i--) {
           const m = s.messages[i];
-          if (m.role === "assistant") {
-            liveIdx = i;
-            liveText = messageText(m);
-            break;
+          if (m.role !== "assistant") {
+            if (m.role === "user") break;
+            continue;
           }
-          if (m.role === "user") break;
-        }
-      }
-      if (liveIdx >= 0 && liveIdx !== this.suppressIdx) {
-        if (!this.utter) {
-          const id = s.entryIds[liveIdx];
-          if (!id || !this.seenIds.has(id)) {
-            const uttId = this.tts.beginUtterance();
-            this.utter = { idx: liveIdx, uttId };
-            this.uttIdx.set(uttId, liveIdx);
-            this.slot = reduceSlot(this.slot, { type: "utterance_begun", uttId, idx: liveIdx });
-          }
-        }
-        if (this.utter && this.utter.idx === liveIdx) {
-          this.tts.noteText(liveText);
+          const id = s.entryIds[i];
+          if ((id && this.seenIds.has(id)) || i === this.suppressIdx) break;
+          if (this.suppressedTail(messageText(m))) break;
+          const uttId = this.tts.beginUtterance();
+          this.uttIdx.set(uttId, i);
+          this.slot = reduceSlot(this.slot, { type: "utterance_begun", uttId, idx: i });
+          this.tts.noteText(messageText(m));
+          if (id) this.seenIds.add(id);
+          this.suppressIdx = i;
+          this.tts.endUtterance();
+          break;
         }
       }
     } else {
@@ -455,15 +494,26 @@ export class VoiceController {
     this.opts.onUi?.(voicePhase(this.ui, this.ttsGlow, this.connecting), activity);
   }
 
+  /** Aborted tails must never be spoken — prefix match (the tail keeps
+   *  growing after the abort decision was made from its prefix). */
+  private suppressedTail(text: string): boolean {
+    return (
+      this.suppressText !== null &&
+      text.length > 0 &&
+      (text.startsWith(this.suppressText) || this.suppressText.startsWith(text))
+    );
+  }
+
   /** Resolve the display slot (0.5.30 replace-on-arrival model) and push it. */
   private emitSlot(): SlotView {
     const s = this.opts.store.state;
-    const liveIdx =
-      s.streamingMessage && s.streamingMessage.role === "assistant" ? s.messages.length : -1;
-    const activity = currentActivity(s.messages);
+    const activity = currentActivity(s.messages, s.streamingMessage);
     if (s.agentRunning && activity !== null) this.stickyActivity = activity;
     const view = slotView(this.slot, {
-      liveIdx,
+      // A thinking/tool-only tail has nothing to SHOW — it must not take the
+      // slot (0.5.31 black screen), the activity phrase speaks for it.
+      tailStreaming:
+        s.streamingMessage !== null && messageText(s.streamingMessage).length > 0,
       running: s.agentRunning,
       activity: this.stickyActivity,
       lastAssistantIdx: lastAssistantIdx(s),
@@ -478,12 +528,15 @@ export class VoiceController {
   }
 }
 
-/** Last completed assistant message of the current turn (never crosses a user
- *  message) — the final response at run end. */
+/** Last displayable assistant reply of the current turn (never crosses a
+ *  user message; toolCall-only intermediates are not "the reply"). */
 function lastAssistantIdx(s: { messages: AgentMessage[] }): number {
   for (let i = s.messages.length - 1; i >= 0; i--) {
     const m = s.messages[i];
-    if (m.role === "assistant") return i;
+    if (m.role === "assistant") {
+      if (messageText(m).length > 0) return i;
+      continue;
+    }
     if (m.role === "user") break;
   }
   return -1;

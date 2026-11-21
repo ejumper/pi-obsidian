@@ -52,7 +52,8 @@ export interface VoiceOverlayOptions {
 }
 
 /** Gesture timings ported from pi-voice-chat's driving UI. */
-const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_MS = 450; // 0.5.31: 320 was too tight for deliberate thumbs —
+// a 350-400 ms double read as pause+resume (two singles) instead of skip.
 const LONG_PRESS_MS = 1000;
 /** Drift from the pointerdown origin that cancels the long press AND turns the
  *  gesture into a swipe (scroll / panel gesture — never a tap on release). */

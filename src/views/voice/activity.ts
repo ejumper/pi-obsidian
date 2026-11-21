@@ -34,24 +34,41 @@ export function toolActivity(toolName: string): string {
 /**
  * Current activity from the transcript tail, or null when nothing specific is
  * active. Rules (newest first):
+ *  • the STREAMING tail is the live turn while it grows — its thinking/toolCall
+ *    blocks live there until message_end (the store keeps the in-flight
+ *    message out of messages[]), so the tail is scanned first (0.5.31: the
+ *    phrases were structurally invisible while streaming);
  *  • a tail `user` message = a prompt with no stream yet → null;
- *  • a live toolCall (no toolResult anywhere) in the last assistant message →
- *    that tool's phrase (parallel calls: the newest unresulted one wins);
- *  • else the tail block is a thinking block → "thinking";
+ *  • a live toolCall (no toolResult anywhere) in the turn → that tool's
+ *    phrase (parallel calls: the newest unresulted one wins);
+ *  • else the turn's tail block is a thinking block → "thinking";
  *  • else null (reply streaming / between actions — the glow's job).
  * Callers gate on `agentRunning`: a completed run always reads null here.
  */
-export function currentActivity(messages: AgentMessage[]): string | null {
-  // Find the live turn: the last assistant message, never crossing a user
-  // message (a fresh prompt means nothing from earlier turns is active).
+export function currentActivity(
+  messages: AgentMessage[],
+  streaming?: AgentMessage | null,
+): string | null {
+  // Find the live turn: the streaming tail first, else the last assistant
+  // message, never crossing a user message (a fresh prompt means nothing
+  // from earlier turns is active).
   let turn: AssistantMessage | null = null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.role === "assistant") {
-      turn = m;
-      break;
+  if (
+    streaming &&
+    streaming.role === "assistant" &&
+    Array.isArray(streaming.content)
+  ) {
+    turn = streaming as AssistantMessage;
+  }
+  if (!turn) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant") {
+        turn = m;
+        break;
+      }
+      if (m.role === "user") return null;
     }
-    if (m.role === "user") return null;
   }
   if (!turn || !Array.isArray(turn.content)) return null;
 
