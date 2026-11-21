@@ -163,7 +163,38 @@ export class PanelView extends ItemView {
     // Controls row: new session, compact, then the mentions pill.
     const controls = root.createDiv({ cls: "pi-panel-controls" });
     const newBtn = this.panelButton(controls, "plus", "New session");
-    newBtn.addEventListener("click", () => {
+    // 0.5.34 (user spec): LONG-PRESS = a session on the DEFAULT machine in
+    // its default dir — whatever device/cwd the tab currently has. Short
+    // press keeps the normal flow. 1 s hold, matching the gesture family;
+    // the click after a long press is swallowed.
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    let longFired = false;
+    const cancelHold = (): void => {
+      if (holdTimer !== null) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    };
+    newBtn.addEventListener("pointerdown", () => {
+      longFired = false;
+      cancelHold();
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        longFired = true;
+        void this.plugin.prepareNewSessionOnDefault();
+        this.collapse();
+      }, 1000);
+    });
+    newBtn.addEventListener("pointerup", cancelHold);
+    newBtn.addEventListener("pointercancel", cancelHold);
+    newBtn.addEventListener("pointerleave", cancelHold);
+    newBtn.addEventListener("click", (e) => {
+      if (longFired) {
+        longFired = false;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       void this.plugin.prepareNewSession();
       this.collapse();
     });

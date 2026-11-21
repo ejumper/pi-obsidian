@@ -96,5 +96,37 @@ try {
   ok(false, `two chat views coexist — ${e}`);
 }
 
+// 0.5.34 — long-press on the panel's New session button: a session on the
+// DEFAULT machine in ITS default dir, whatever device/cwd the tab has.
+{
+  plugin.settings.instances = [
+    { id: "d", name: "default", baseUrl: "http://d.test", defaultSessionPath: "/data/home", pathPrefix: "/data" },
+    { id: "x", name: "other", baseUrl: "http://x.test", defaultSessionPath: "/elsewhere", pathPrefix: "/elsewhere" },
+  ];
+  const v = plugin.__views["pi-chat"]({ app: appStub, updateHeader() {} });
+  await v.open();
+  appStub.workspace.activeLeaf = { view: v };
+  appStub.workspace.getLeavesOfType = () => [{ view: v }];
+  v.setInstance("x"); // the tab is on the OTHER machine...
+  plugin.settings.lastCwd = "/elsewhere/last"; // ...with a cwd chain that would normally win
+  await plugin.prepareNewSessionOnDefault();
+  ok(v.getInstanceId() === "d", "long-press flow rebinds the tab to the default machine");
+  ok(
+    v.pendingCwd === "/data/home",
+    `long-press flow uses the DEFAULT machine's default dir (got ${v.pendingCwd})`,
+  );
+  // An empty defaultSessionPath falls back to the machine's own root — never
+  // the tab's current/last cwd (those belong to another context).
+  plugin.settings.instances[0] = { id: "d", name: "default", baseUrl: "http://d.test", pathPrefix: "/data" };
+  await plugin.prepareNewSessionOnDefault();
+  ok(
+    v.pendingCwd === "/data",
+    `empty default dir falls back to the machine root (got ${v.pendingCwd})`,
+  );
+  appStub.workspace.activeLeaf = null;
+  appStub.workspace.getLeavesOfType = () => [];
+  await v.close();
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

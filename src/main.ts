@@ -88,6 +88,11 @@ export default class PiPlugin extends Plugin {
       callback: () => void this.prepareNewSession(),
     });
     this.addCommand({
+      id: "new-pi-session-on-default",
+      name: "New session on default machine (its default dir)",
+      callback: () => void this.prepareNewSessionOnDefault(),
+    });
+    this.addCommand({
       id: "pi-abort-run",
       name: "Abort run",
       callback: () => this.withChatView((view) => view.abortRun()),
@@ -269,6 +274,28 @@ export default class PiPlugin extends Plugin {
     });
   }
 
+  /** Long-press on the panel's New session button (0.5.34, user spec): a
+   *  session on the DEFAULT machine (instances[0]) in ITS default dir —
+   *  regardless of the tab's current device/cwd, which the short press builds
+   *  on. The cwd chain is narrowed to the target machine's own settings (its
+   *  defaultSessionPath, else its path root — never the tab's current/last
+   *  cwd, which belong to another context). */
+  async prepareNewSessionOnDefault(): Promise<void> {
+    const inst = this.getDefaultInstance();
+    await this.withChatView(async (view) => {
+      view.setInstance(inst.id);
+      const paths = this.getInstancePaths(inst.id);
+      const cwd = await resolveCwdChain(this.getClient(inst.id), {
+        defaultPath: paths.defaultSessionPath,
+        currentCwd: null,
+        lastCwd: "",
+        fallbackRoot: paths.pathPrefix,
+      });
+      view.prepareNewSession(cwd);
+      new Notice(`pi: new session · ${inst.name} · ${cwd}`);
+    });
+  }
+
   /** Open a session in the chat view (panel-driven). */
   async openSessionInChat(id: string): Promise<void> {
     await this.withChatView((view) => view.openSessionById(id));
@@ -339,15 +366,15 @@ export default class PiPlugin extends Plugin {
   }
 
   /** Run an action against the chat view, opening it first if needed. */
-  async withChatView(action: (view: ChatView) => void): Promise<void> {
+  async withChatView(action: (view: ChatView) => void | Promise<void>): Promise<void> {
     const attached = this.attachedActiveChatView();
     if (attached) {
-      action(attached);
+      await action(attached);
       return;
     }
     await this.activateChatView();
     const view = this.firstChatView();
-    if (view) action(view);
+    if (view) await action(view);
   }
 
 
