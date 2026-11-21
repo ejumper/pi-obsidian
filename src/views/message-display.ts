@@ -137,7 +137,24 @@ export interface GroupUnit {
   toolResults: Map<string, ToolResultMessage>;
 }
 
-export type TranscriptUnit = MessageUnit | GroupUnit;
+export type TranscriptUnit = MessageUnit | GroupUnit | CaretUnit;
+
+/** 0.5.33: the compaction COMPLETION caret, inline at the seam (the old
+ *  bottom-pinned banner chased the viewport — the line belongs where the
+ *  compaction finished: kept content above, new messages below). */
+export interface CaretUnit {
+  kind: "caret";
+  tokensBefore: number;
+  estimatedTokensAfter: number;
+}
+
+/** Where the completion caret goes: BEFORE the message at `afterIdx` (the
+ *  message count at compaction completion). */
+export interface CompactionCaret {
+  afterIdx: number;
+  tokensBefore: number;
+  estimatedTokensAfter: number;
+}
 
 function plain(message: AgentMessage, entryId?: string): MessageUnit {
   return { kind: "message", tag: "plain", key: message, message, entryId };
@@ -151,11 +168,26 @@ function withBlocks(message: AssistantMessage, content: AssistantContentBlock[])
 export function computeTranscriptUnits(
   messages: AgentMessage[],
   running: boolean,
-  entryIds?: string[]
+  entryIds?: string[],
+  caret?: CompactionCaret | null,
 ): TranscriptUnit[] {
   const units: TranscriptUnit[] = [];
   let idx = 0;
+  let caretDone = false;
+  const dropCaret = (): void => {
+    // The seam is always a segment boundary (compaction completes between
+    // turns) — a mid-segment seam would render before that segment instead.
+    if (caret && !caretDone && idx >= caret.afterIdx) {
+      caretDone = true;
+      units.push({
+        kind: "caret",
+        tokensBefore: caret.tokensBefore,
+        estimatedTokensAfter: caret.estimatedTokensAfter,
+      });
+    }
+  };
   while (idx < messages.length) {
+    dropCaret();
     const msg = messages[idx];
     if (msg.role !== "user") {
       units.push(plain(msg, entryIds?.[idx]));
@@ -229,6 +261,7 @@ export function computeTranscriptUnits(
 
     idx = endIdx;
   }
+  dropCaret(); // the seam at (or past) the end — no new messages yet
   return units;
 }
 
@@ -250,6 +283,7 @@ interface UnitsCacheEntry {
   running: boolean;
   entryIds: string[] | undefined;
   compactResult: CompactResultInfo | null | undefined;
+  caretAt: number | null;
   units: TranscriptUnit[];
 }
 
@@ -265,15 +299,17 @@ export function createUnitsCache(): (
   running: boolean,
   entryIds: string[] | undefined,
   compactResult: CompactResultInfo | null | undefined,
+  caretAt: number | null,
 ) => TranscriptUnit[] {
   let entry: UnitsCacheEntry | null = null;
-  return (messages, running, entryIds, compactResult) => {
+  return (messages, running, entryIds, compactResult, caretAt) => {
     if (
       entry !== null &&
       entry.messages === messages &&
       entry.running === running &&
       entry.entryIds === entryIds &&
-      entry.compactResult === compactResult
+      entry.compactResult === compactResult &&
+      entry.caretAt === caretAt
     ) {
       return entry.units;
     }
@@ -302,7 +338,19 @@ export function createUnitsCache(): (
       running,
       entryIds,
       compactResult,
-      units: computeTranscriptUnits(stripped, running, entryIds),
+      caretAt,
+      units: computeTranscriptUnits(
+        stripped,
+        running,
+        entryIds,
+        compactResult && typeof caretAt === "number"
+          ? {
+              afterIdx: caretAt,
+              tokensBefore: compactResult.tokensBefore,
+              estimatedTokensAfter: compactResult.estimatedTokensAfter,
+            }
+          : null,
+      ),
     };
     return entry.units;
   };

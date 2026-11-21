@@ -97,7 +97,7 @@ const appStub = {
 };
 const plugin = new PiPlugin(appStub, { version: "test", id: "pi-obsidian" });
 await plugin.onload();
-plugin.getClient = () => ({ baseUrl: "http://machine.test" });
+plugin.getClient = () => ({ baseUrl: "http://machine.test", getModels: async () => ({ models: {} }) });
 
 // Steal the bundle's real TranscriptRenderer through an open chat view.
 const view = plugin.__views["pi-chat"]({ app: appStub, updateHeader() {} });
@@ -197,6 +197,7 @@ const plain = (message) => ({ kind: "message", tag: "plain", key: message, messa
   let releaseCompact; // the RPC stays in flight while we sample the tail line
   plugin.getClient = () => ({
     baseUrl: "http://machine.test",
+    getModels: async () => ({ models: {} }),
     getState: async () => ({ running: false }),
     getSession: async () => payload,
     getSessionContext: async () => payload.context,
@@ -231,6 +232,27 @@ const plain = (message) => ({ kind: "message", tag: "plain", key: message, messa
   ok(text.includes("Session Compacted · 305,228 tokens compacted"),
     `full flow: caret with tokens compacted (got: ${text.slice(0, 150)})`);
   ok(!text.includes("Compacting..."), "full flow: tail line is gone after compaction");
+  // 0.5.33 (device bug): the completion caret must stay INLINE at the seam —
+  // new messages flow BELOW it, not above a bottom-pinned banner.
+  payload = {
+    ...after,
+    context: {
+      entryIds: ["e2", "e3", "e4", "e5"],
+      messages: [
+        ...after.context.messages,
+        { role: "user", content: [{ type: "text", text: "what now" }], timestamp: 5 },
+      ],
+    },
+  };
+  await store.refreshFromDisk();
+  await new Promise((res) => setTimeout(res, 80));
+  const flowed = v.transcriptEl.textContent ?? "";
+  // NOTE: message TEXT never renders in this harness (markdown is stubbed) —
+  // the new user message's "Edit from here" action row is its DOM anchor.
+  ok(
+    flowed.indexOf("Session size 25,000") < flowed.indexOf("Edit from here"),
+    "0.5.33: the caret stays at the seam (new messages render BELOW it)",
+  );
   await v.close();
 }
 

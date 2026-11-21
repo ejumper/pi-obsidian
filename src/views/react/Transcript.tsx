@@ -37,11 +37,6 @@ export interface TranscriptData {
   runError?: string | null;
   /** Live compaction: plain "Compacting..." line at the session tail (0.5.5). */
   compacting?: boolean;
-  /** Finished compaction: the caret block that REPLACES the tail line in place
-   *  (0.5.5 spec, landed 0.5.17 — the history caret sits at the projection's
-   *  head, always out of the scrolled-down viewport). pi-web's green composer
-   *  banner parity: lives until the next compaction or session change. */
-  compactResult?: CompactResultInfo | null;
 }
 
 /** pi-web's rule: only the LAST assistant message of a turn shows the
@@ -54,7 +49,7 @@ function computeShowTimestamps(units: TranscriptUnit[]): Map<TranscriptUnit, boo
     let visible = true;
     for (let j = i + 1; j < units.length; j++) {
       const next = units[j];
-      if (next.kind === "group") break; // a new turn's process group
+      if (next.kind !== "message") break; // a group = a new turn; a caret = a seam
       const role = next.message.role;
       if (role === "user") break;
       if (role === "assistant") {
@@ -83,7 +78,7 @@ function computePrevAssistantEntryIds(units: TranscriptUnit[]): Map<TranscriptUn
   for (const unit of units) {
     if (unit.kind === "group") {
       for (const member of unit.members) visit(unit, member.message, member.entryId);
-    } else {
+    } else if (unit.kind === "message") {
       visit(unit, unit.message, unit.entryId);
     }
   }
@@ -114,7 +109,7 @@ function prevAssistantFor(units: TranscriptUnit[]): Map<TranscriptUnit, string |
   return cached;
 }
 
-function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError, compacting, compactResult }: TranscriptData) {
+function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, onNavigate, onEditContent, onRendered, runError, compacting }: TranscriptData) {
   const showTs = showTimestampsFor(units);
   // No dep array: fires after every commit. A plain rAF scroll races React's
   // async commit on big session swaps (the transcript still held the old DOM
@@ -144,6 +139,43 @@ function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, 
   return (
     <div className="pi-transcript-react">
       {units.map((unit, idx) => {
+        if (unit.kind === "caret") {
+          // 0.5.33: the compaction completion caret — inline at the seam
+          // (kept content above, new messages below). Was a bottom-pinned
+          // banner that stayed below every new message (device report).
+          return (
+            <div
+              key={`c-${idx}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                minHeight: 24,
+                marginBottom: 14,
+                color: "var(--text-muted)",
+                fontSize: 12,
+              }}
+              title="Session compacted"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ flexShrink: 0 }}
+              >
+                <polyline points="4 2.5 7.5 6 4 9.5" />
+              </svg>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {compactionCaretParts(unit.tokensBefore, unit.estimatedTokensAfter).join(" · ")}
+              </span>
+            </div>
+          );
+        }
         if (unit.kind === "group") {
           return (
             <ProcessDetailsGroup
@@ -227,42 +259,10 @@ function TranscriptView({ units, streaming, modelNames, cwd, sessionId, onFork, 
       {compacting ? (
         /* pi-obsidian divergence (0.5.5, user spec): a live compaction shows a
            plain-text "Compacting..." line at the session tail — model-reply
-           styling, no bubble — replaced in place by the finished caret block. */
+           styling, no bubble. On completion it vanishes: the caret unit now
+           renders inline at the seam (0.5.33) where it replaces this line. */
         <div style={{ color: "var(--text-normal)", fontSize: 15, lineHeight: 1.65, marginBottom: 16 }}>
           Compacting...
-        </div>
-      ) : compactResult ? (
-        /* The finished caret block (0.5.17): the tail line's promised
-           replacement — "Session Compacted · N tokens compacted · Session
-           size M". CompactionDetails chrome, numbers from the live result. */
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            minHeight: 24,
-            marginBottom: 14,
-            color: "var(--text-muted)",
-            fontSize: 12,
-          }}
-          title="Session compacted"
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ flexShrink: 0 }}
-          >
-            <polyline points="4 2.5 7.5 6 4 9.5" />
-          </svg>
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {compactionCaretParts(compactResult.tokensBefore, compactResult.estimatedTokensAfter).join(" · ")}
-          </span>
         </div>
       ) : null}
     </div>

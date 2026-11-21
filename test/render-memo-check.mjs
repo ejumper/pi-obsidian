@@ -24,6 +24,11 @@ const ok = (cond, label) => {
   console.log(`${cond ? "PASS" : "FAIL"}  ${label}`);
   if (!cond) failures++;
 };
+const eq = (got, want, label) =>
+  ok(
+    JSON.stringify(got) === JSON.stringify(want),
+    `${label} — got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`,
+  );
 
 const bundle = require("../dist/main.js");
 const { stripMessageVoiceBlocks, createUnitsCache } = bundle;
@@ -100,6 +105,32 @@ const unitsFor = createUnitsCache();
     tailC.message.details?.estimatedTokensAfter === 5,
     "the fresh estimate rides the tail message",
   );
+}
+
+// 5 — the compaction completion caret renders at the SEAM (0.5.33: it was a
+// bottom-pinned banner that stayed below every new message).
+{
+  const msgs = [user("a"), asst([text("b")]), user("c"), asst([text("d")])];
+  const ids = ["e0", "e1", "e2", "e3"];
+  const r = { tokensBefore: 10, estimatedTokensAfter: 5 };
+  const mid = unitsFor(msgs, false, ids, r, 2);
+  const kinds = mid.map((u) => u.kind);
+  eq(kinds.indexOf("caret"), 2, "caret sits at the seam between the turns");
+  const c1 = mid[kinds.indexOf("caret")];
+  eq(
+    { t: c1.tokensBefore, e: c1.estimatedTokensAfter },
+    { t: 10, e: 5 },
+    "caret carries the live numbers",
+  );
+  const atEnd = unitsFor(msgs, false, ids, r, 4);
+  eq(atEnd.map((u) => u.kind).indexOf("caret"), atEnd.length - 1, "seam at the end: caret last (no new messages yet)");
+  const noCaret = unitsFor(msgs, false, ids, null, 2);
+  ok(!noCaret.some((u) => u.kind === "caret"), "no compaction result: no caret");
+  const idA = unitsFor(msgs, false, ids, r, 2);
+  const idB = unitsFor(msgs, false, ids, r, 2);
+  ok(idA === idB, "same caret spec keeps cache identity");
+  const moved = unitsFor(msgs, false, ids, r, 3);
+  ok(moved !== idA, "a moved seam recomputes the units");
 }
 
 console.log(failures === 0 ? "render-memo-check: all green" : `render-memo-check: ${failures} FAILURE(S)`);

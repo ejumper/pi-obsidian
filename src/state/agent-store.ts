@@ -89,6 +89,10 @@ export interface StoreState {
   queuedMessages: QueuedMessages;
   isCompacting: boolean;
   compactResult: CompactResultInfo | null;
+  /** 0.5.33: where the completion caret renders inline — the message count at
+   *  compaction completion (the seam between the kept content and whatever
+   *  arrives next). The old bottom-pinned banner chased the viewport instead. */
+  compactCaretAt: number | null;
   compactError: string | null;
   retryInfo: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
   thinkingLevel: ThinkingLevelOption;
@@ -242,6 +246,7 @@ export class AgentStore {
     queuedMessages: { steering: [], followUp: [] },
     isCompacting: false,
     compactResult: null,
+    compactCaretAt: null,
     compactError: null,
     retryInfo: null,
     thinkingLevel: "auto",
@@ -412,6 +417,7 @@ export class AgentStore {
       queuedMessages: { steering: [], followUp: [] },
       isCompacting: false,
       compactResult: null,
+      compactCaretAt: null,
       compactError: null,
       retryInfo: null,
       thinkingLevel: this.defaultThinkingLevel,
@@ -535,7 +541,7 @@ export class AgentStore {
       this.hooks.onNotice?.("Compaction already running", "warning");
       return;
     }
-    this.update({ isCompacting: true, compactError: null, compactResult: null });
+    this.update({ isCompacting: true, compactError: null, compactResult: null, compactCaretAt: null });
     try {
       const result = await this.client.sendCommand(sid, {
         type: "compact", ...(customInstructions ? { customInstructions } : {}),
@@ -543,6 +549,8 @@ export class AgentStore {
       const info = readCompactResult(result.data, "manual");
       if (info) this.update({ compactResult: info });
       await this.refreshFromDisk();
+      // The completion caret's seam: end of the kept content as of now (0.5.33).
+      this.update({ compactCaretAt: this.state.messages.length });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.update({ compactError: msg });
@@ -1036,7 +1044,7 @@ export class AgentStore {
 
       case "auto_compaction_start":
       case "compaction_start":
-        this.update({ isCompacting: true, compactError: null, compactResult: null });
+        this.update({ isCompacting: true, compactError: null, compactResult: null, compactCaretAt: null });
         break;
 
       case "auto_compaction_end":
@@ -1046,9 +1054,19 @@ export class AgentStore {
         if (e.errorMessage) {
           patch.compactError = e.errorMessage;
           patch.compactResult = null;
+          patch.compactCaretAt = null;
         } else if (!e.aborted) {
-          patch.compactResult = readCompactResult(e.result, e.reason ?? "auto");
-          void this.refreshFromDisk();
+          const info = readCompactResult(e.result, e.reason ?? "auto");
+          patch.compactResult = info;
+          if (info) {
+            void this.refreshFromDisk().then(() => {
+              // Seam capture (0.5.33) — after the projection lands; a newer
+              // compaction having replaced the result cancels it.
+              if (this.state.compactResult === info) {
+                this.update({ compactCaretAt: this.state.messages.length });
+              }
+            });
+          }
         }
         this.update(patch);
         break;

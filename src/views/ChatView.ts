@@ -1121,14 +1121,13 @@ export class ChatView extends ItemView {
       return;
     }
     this.transcript.update({
-      units: this.unitsFor(s.messages, s.agentRunning, s.entryIds, s.compactResult),
+      units: this.unitsFor(s.messages, s.agentRunning, s.entryIds, s.compactResult, s.compactCaretAt),
       streaming: s.streamingMessage ? stripMessageVoiceBlocks(s.streamingMessage) : null,
       modelNames: this.modelNames,
       cwd: s.cwd,
       sessionId: s.sessionId ?? undefined,
       runError: s.runError,
       compacting: s.isCompacting,
-      compactResult: s.compactResult,
       apiBase: this.plugin.getClient(this.instanceId).baseUrl,
       speak: this.speakController,
       ...this.transcriptHandlers,
