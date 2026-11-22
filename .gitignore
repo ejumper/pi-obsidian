@@ -4,3 +4,7 @@ main.js
 data.json
 dist/
 glow-effect/
+# Syncthing conflict duplicates (the tree syncs across devices — a stale
+# sibling's write lands as *.sync-conflict-<stamp>-<device>.* and must never
+# ride git add -A; they also break tsc when they sit in src/).
+*sync-conflict*

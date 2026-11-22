@@ -91,6 +91,13 @@ export class ChatView extends ItemView {
   private prevShownForFocus = false;
   /** The machine this tab talks to (Phase 13) — persisted in leaf state. */
   private instanceId = "";
+  /** 0.5.35: the machine the STORE is actually bound to. The label above and
+   *  this must never diverge — setState used to assign the label alone, and a
+   *  restored session then opened on whatever machine the store happened to
+   *  be bound to (the onOpen/setState race: onOpen binds to last-used first).
+   *  The symlinked session copies masked the mismatch — every machine serves
+   *  every session — so the models were the only tell. */
+  private boundInstanceId = "";
   /** PHASE-16 restore slot: setState can arrive before or after onOpen; the
    *  saved session/draft park here until the store and composer both exist. */
   private restorePending = false;
@@ -138,7 +145,18 @@ export class ChatView extends ItemView {
   }
 
   async setState(state: { instanceId?: string; sessionId?: string | null; draft?: string } | null): Promise<void> {
-    if (state?.instanceId) this.instanceId = state.instanceId;
+    if (state?.instanceId) {
+      this.instanceId = state.instanceId;
+      // 0.5.35: BIND, don't just relabel — maybeRestore below opens the
+      // session on the STORE's machine, and onOpen may already have bound the
+      // store to the last-used one. No switch-reset UX here: a restore keeps
+      // its session (rebind alone resets the still-empty store, then the open
+      // lands it).
+      if (this.store && state.instanceId !== this.boundInstanceId) {
+        this.boundInstanceId = state.instanceId;
+        this.store.rebind(this.plugin.getClient(state.instanceId));
+      }
+    }
     if (state?.sessionId || state?.draft) {
       this.restorePending = true;
       this.restoredSessionId = state.sessionId ?? null;
@@ -191,8 +209,9 @@ export class ChatView extends ItemView {
   /** Re-point this tab at another machine (panel pill): store rebinds and the
    *  tab drops to no-session — sessions are per-machine storage. */
   setInstance(id: string): void {
-    if (!id || id === this.instanceId) return;
+    if (!id || id === this.boundInstanceId) return;
     this.instanceId = id;
+    this.boundInstanceId = id;
     this.store.rebind(this.plugin.getClient(id));
     this.setVoiceMode(false);
     // The tab title names the target device (0.5.6) — refresh it on switches.
@@ -375,6 +394,7 @@ export class ChatView extends ItemView {
   }
 
   private createStore(): AgentStore {
+    this.boundInstanceId = this.instanceId;
     return new AgentStore(this.plugin.getClient(this.instanceId || undefined), {
       defaultThinkingLevel: this.plugin.settings.defaultThinkingLevel,
       onNotice: (message, type) =>
@@ -408,7 +428,9 @@ export class ChatView extends ItemView {
       this.refreshLeafTitle();
       this.store = this.createStore();
       this.attachments = new AttachmentStage({
-        upload: (file) => this.plugin.client.uploadAttachment(file),
+        // 0.5.35: the BOUND machine — plugin.client is the default machine's
+        // client, which sent uploads/models to the wrong box.
+        upload: (file) => this.plugin.getClient(this.instanceId).uploadAttachment(file),
         onChange: () => this.updateComposerState(),
       });
       this.buildDom();
@@ -455,9 +477,15 @@ export class ChatView extends ItemView {
         sourcePath: "",
         component: this,
       });
-      void this.plugin.client.getModels().then((models) => {
-        this.modelNames = models.models ?? {};
-      }).catch(() => {});
+      // Model names are cosmetic — never let their fetch kill the view
+      // (0.5.35: a synchronous client throw in buildDom blanked the tab).
+      try {
+        void this.plugin.getClient(this.instanceId).getModels().then((models) => {
+          this.modelNames = models.models ?? {};
+        }).catch(() => {});
+      } catch {
+        // non-fatal
+      }
       // Panel targeting, interaction signal: whatever pi view the user last
       // touched wins. The composer lives on document.body (outside
       // containerEl) so it needs its own listeners.
@@ -929,7 +957,7 @@ export class ChatView extends ItemView {
     const s = this.store.state;
     const cwd = s.cwd || this.plugin.settings.lastCwd;
     try {
-      const models = await this.plugin.client.getModels(cwd);
+      const models = await this.plugin.getClient(this.instanceId).getModels(cwd);
       const menu = new Menu();
       for (const m of models.modelList ?? []) {
         menu.addItem((item) =>
